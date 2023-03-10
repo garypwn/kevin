@@ -1,0 +1,2 @@
+PettingZoo~=1.22.3
+jax~=0.4.6
