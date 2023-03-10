@@ -5,13 +5,28 @@ from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ActionDict, ObsDict
 
 
+class SnakeGameState:
+    r"""A board state in a game of snake."""
+
+    turn: int
+    dimensions: (int, int)
+    food: list[(int, int)]
+    hazards: list[(int, int)]
+    snakes: list[list[(int, int)]]
+
+
 class SnakeEngine:
     r"""A game of snake. Contains methods to read the board state and submit moves for one or more snakes."""
-    pass
+
+    def board(self) -> SnakeGameState:
+        pass
+
+    def submit_move(self, snake_id):
+        pass
 
 
 class MultiSnakeEnv(ParallelEnv):
-    r"""Takes a SnakeEngine and maps it to a `pettingzoo` environment"""
+    r"""Takes a SnakeEngine and maps it to a pettingzoo environment"""
 
     snake: SnakeEngine
 
