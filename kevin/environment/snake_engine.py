@@ -1,3 +1,4 @@
+from abc import abstractmethod, ABC
 from typing import List, Tuple, Dict, Optional
 
 import jax.numpy as jnp
@@ -15,12 +16,14 @@ class SnakeGameState:
     snakes: list[list[(int, int)]]
 
 
-class SnakeEngine:
+class SnakeEngine(ABC):
     r"""A game of snake. Contains methods to read the board state and submit moves for one or more snakes."""
 
+    @abstractmethod
     def board(self) -> SnakeGameState:
         pass
 
+    @abstractmethod
     def submit_move(self, snake_id):
         pass
 
