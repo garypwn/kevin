@@ -1,82 +1,121 @@
 from abc import abstractmethod, ABC
-from typing import List, Tuple, Dict, Optional
-
-import gymnasium
-import jax.numpy as jnp
-from gymnasium import spaces
-from pettingzoo import ParallelEnv
-from pettingzoo.utils.env import ActionDict, ObsDict
 
 
-class SnakeGameState:
-    r"""A board state in a game of snake."""
-
-    turn: int
-    dimensions: (int, int)
-    food: list[(int, int)]
-    hazards: list[(int, int)]
-    snakes: list[list[(int, int)]]
-
-
+# noinspection PyMethodMayBeStatic
 class SnakeEngine(ABC):
-    r"""A game of snake. Contains methods to read the board state and submit moves for one or more snakes."""
-
-    @abstractmethod
-    def board(self) -> SnakeGameState:
-        pass
-
-    @abstractmethod
-    def submit_move(self, snake_id):
-        pass
-
-
-class MultiSnakeEnv(ParallelEnv):
-    r"""Takes a SnakeEngine and maps it to a pettingzoo environment.
-    Observations are of the form
-        "snakes": [id: 0-15]["health": 0-100, "you": T-F]
-        "turn": [0-inf]
-        "board": [x: 0-w][y:0-h][cell: empty=0, food=1, hazard=2, snake head = 2(id)+3, body= 2(id)+4 => 0 .. 30]
+    r"""A game of snake. Contains methods to read the board state and submit moves for one or more snakes.
+    Can be used for training or playing games.
     """
 
-    snake: SnakeEngine
-
-    def __init__(self, eng: SnakeEngine):
-        self.snake = eng
-
-        self.possible_agents = ["snake_" + str(r) for r in range(16)]
-        self.action_spaces = {agent: spaces.Discrete(4) for agent in self.possible_agents}
-
-    def observation_space(self, agent) -> gymnasium.spaces.Space:
-        return spaces.Dict(
-            # todo: expand to variable sized board, larger number of snakes
-            {
-                "snakes": spaces.Tuple(((spaces.Dict(
-                    {
-                        "health": spaces.Box(0, 100, dtype=int),
-                        "you": spaces.Discrete(2)
-                    }
-                )),)*4),  # There are 4 snakes for now
-
-                "turn": spaces.Box(low=0, dtype=int),
-
-                #  Board dimensions
-                "board": spaces.Box(low=jnp.ndarray([0, 0]), high=jnp.ndarray([10, 10]), dtype=int),
-            }
-        )
-
-    def reset(self, seed: Optional[int] = None, return_info: bool = False, options: Optional[dict] = None) -> ObsDict:
+    @abstractmethod
+    def player_count(self) -> int:
+        r"""
+        How many players this board supports. This should be invariant.
+        :return: The number of players supported by the game
+        """
         pass
 
-    def seed(self, seed=None):
+    @abstractmethod
+    def height(self) -> int:
+        r"""
+        Invariant board height.
+        :return: The size of the board in the [y,] direction
+        """
         pass
 
-    def step(self, actions: ActionDict) -> Tuple[
-        ObsDict, Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, dict]
-    ]:
+    @abstractmethod
+    def width(self) -> int:
+        r"""
+        Invariant board width
+        :return: The size of the board in the [,x] direction
+        """
         pass
 
-    def render(self) -> None | jnp.ndarray | str | List:
+    @abstractmethod
+    def get_observation(self, snake_id: str) -> dict:
+        r"""
+        A representation of the board state suitable for a state observation. See MultiSnakeEnv.
+        :param snake_id: Which snake to flag as "you"
+        :return: The board state
+        """
         pass
 
-    def state(self) -> jnp.ndarray:
+    def get_reward(self, snake_id) -> float:
+        r"""
+        The reward function. Since we don't actually know the reward for a given move, this can just
+        return 0 for now
+        :param snake_id: The snake
+        :return: The reward
+        """
+        return 0.
+
+    @abstractmethod
+    def get_terminated(self, snake_id) -> bool:
+        r"""
+        Gets whether a snake is terminated
+        :param snake_id:
+        :return:
+        """
         pass
+
+    @abstractmethod
+    def get_truncated(self, snake_id) -> bool:
+        r"""
+        Gets whether a snake is truncated (due to a time limit)
+        :param snake_id:
+        :return:
+        """
+        pass
+
+    def get_info(self, snake_id) -> dict:
+        r"""
+        Gets the info dictionary required by environments.
+        :param snake_id: The snake id
+        :return: An empty dictionary
+        """
+        return {}
+
+    @abstractmethod
+    def global_observation(self) -> dict:
+        r"""
+        A global (agnostic of snake perspective) representation of the board state. This is equal to
+        the board state for any snake's perspective without any snake having the "you" flag set.
+        :return: The board state.
+        """
+        pass
+
+    @abstractmethod
+    def submit_move(self, snake_id, move: int) -> None:
+        r"""
+        Submits a move for a snake. Moves are [0,3] such that move= [u, r, d, l][i]
+        :param move: The integer representation of the move.
+        :param snake_id: The snake to submit the move for.
+        :return: None
+        """
+        pass
+
+    @abstractmethod
+    def step(self) -> None:
+        r"""
+        Advances the game to the next step. This should result in new observations.
+        :return: None
+        """
+        pass
+
+    @abstractmethod
+    def reset(self) -> None:
+        r"""
+        Initialize a new board. Note: this must be deterministic if used for training!
+        :return: None
+        """
+        pass
+
+    def seed(self, seed) -> None:
+        r"""
+        Must be overriden if this class is used for training!
+        Sets the rng for the game, making it deterministic.
+        If used for training, a deterministic prng like ``jax.random`` must be used.
+        :param seed: The prng seed
+        :return: None
+        """
+        raise NotImplementedError("This board is not deterministic.")
