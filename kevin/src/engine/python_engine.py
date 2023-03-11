@@ -131,7 +131,7 @@ class PythonStandard4Player(SnakeEngine):
         entry_copy["you"] = 1
         snake_copy[num] = entry_copy
 
-        return {"snakes": snake_copy, "board": self.board}
+        return {"snakes": snake_copy, "turn": self.turn_num, "board": self.board}
 
     def get_terminated(self, snake_id) -> bool:
 
@@ -147,7 +147,7 @@ class PythonStandard4Player(SnakeEngine):
         return False
 
     def global_observation(self) -> dict:
-        return {"snakes": self.snakes_array, "board": self.board}
+        return {"snakes": self.snakes_array, "turn": self.turn_num, "board": self.board}
 
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
