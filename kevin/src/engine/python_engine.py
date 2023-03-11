@@ -122,6 +122,51 @@ class PythonStandard4Player(SnakeEngine):
             for x, y in snake.body[1:]:
                 self.board[x, y] = body
 
+    def _elminate_snake(self, snake_id: str):
+        r"""
+        Eliminate a snake by setting its length to 0
+        :param snake_id:
+        :return:
+        """
+        pass
+
+    def _elminiated(self, snake_id: str) -> bool:
+        r"""
+        Check if a snake is elminated. A snake is eliminated if it has 0 length.
+        :param snake_id:
+        :return: True if the snake is eliminated
+        """
+        return len(self.snakes[snake_id].body) < 1
+    def _move_snakes(self):
+        r""" Helper for step() """
+
+        #  Compute next move targets
+        def compute_next(snake, move):
+            head = snake.body[0]
+            match move:
+                case 0: #  Up
+                    return (x, y+1 for x, y in head)
+
+                case 1: # right
+                    return (x+1, y for x, y in head)
+
+                case 2: # down
+                    return (x, y-1 for x, y in head)
+
+                case 3: # left
+                    return (x-1, y for x, y in head)
+
+        targets = map(self.pending_moves, lambda name, move: compute_next(self.snakes[name], move))
+
+        #  todo all these in order
+        #  Apply damage todo
+        #  Eat food todo
+        #  Check for out of bounds todo
+        #  Check for out of health todo
+        #  Check for collision with snake body todo
+        #  Check for collision with snake head todo
+        #  Eliminate snakes after all checks todo
+
     def get_observation(self, snake_id: str) -> dict:
         num = int(snake_id[6:])
 
