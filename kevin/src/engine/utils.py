@@ -24,11 +24,11 @@ def observation_from_dict(d: dict, max_snakes=4) -> dict:
 
     # Place food on the board
     for morsel in d["board"]["food"]:
-        board[morsel["y"], morsel["x"]] = 1
+        board[morsel["x"], morsel["y"]] = 1
 
     # Place hazards
     for hazard in d["board"]["hazards"]:
-        board[hazard["y"], hazard["x"]] = 2
+        board[hazard["x"], hazard["y"]] = 2
 
     # Snakes
     for i, snake in enumerate(d["board"]["snakes"]):
@@ -44,11 +44,11 @@ def observation_from_dict(d: dict, max_snakes=4) -> dict:
 
         if snake["body"][0]:
             coord = snake["body"][0]
-            board[coord["y"], coord["x"]] = head
+            board[coord["x"], coord["y"]] = head
         else:
             continue  # This snake is empty
 
         for coord in snake["body"][1:]:
-            board[coord["y"], coord["x"]] = body
+            board[coord["x"], coord["y"]] = body
 
     return {"snakes": snakes, "turn": d["turn"], "board": board}

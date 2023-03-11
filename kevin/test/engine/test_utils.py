@@ -1,6 +1,6 @@
 import jax.numpy as jnp
 
-import kevin.src.environment.utils as utils
+import kevin.src.engine.utils as utils
 
 
 def test_observation_from_empty():

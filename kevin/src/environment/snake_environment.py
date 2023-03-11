@@ -5,7 +5,7 @@ from jax import numpy as jnp
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
-from kevin.src.environment.snake_engine import SnakeEngine
+from kevin.src.engine.snake_engine import SnakeEngine
 
 
 # noinspection SpellCheckingInspection
@@ -15,6 +15,9 @@ class MultiSnakeEnv(ParallelEnv):
         "snakes": [id: 0-15]["health": 0-100, "you": T-F]
         "turn": [0-inf]
         "board": [x: 0-w][y:0-h][cell: empty=0, food=1, hazard=2, snake head = 2(id)+3, body= 2(id)+4 => 0 .. 30]
+
+    Snake ids are always of the form "snake_i" for i in [0,max snakes]
+
     """
 
     game: SnakeEngine
