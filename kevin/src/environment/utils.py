@@ -16,19 +16,19 @@ def observation_from_dict(d: dict, max_snakes=4) -> dict:
     height = d["board"]["height"]
 
     board = jnp.zeros([width, height], dtype=int)  # Initialize the board with all empty spaces
-    snakes = (({
+    snakes = [{
         #  Initialize max_snakes snakes with 0 hp and not you.
         "health": 0,
         "you": 0,
-    }),) * max_snakes
+    } for _ in range(max_snakes)]
 
     # Place food on the board
     for morsel in d["board"]["food"]:
-        board[morsel["x"], morsel["y"]] = 1
+        board[morsel["y"], morsel["x"]] = 1
 
     # Place hazards
     for hazard in d["board"]["hazards"]:
-        board[hazard["x"], hazard["y"]] = 2
+        board[hazard["y"], hazard["x"]] = 2
 
     # Snakes
     for i, snake in enumerate(d["board"]["snakes"]):
@@ -42,13 +42,13 @@ def observation_from_dict(d: dict, max_snakes=4) -> dict:
         head = 2 * i + 3
         body = 2 * i + 4
 
-        if snake[0]:
-            coord = snake[0]
-            board[coord["x"], coord["y"]] = head
+        if snake["body"][0]:
+            coord = snake["body"][0]
+            board[coord["y"], coord["x"]] = head
         else:
             continue  # This snake is empty
 
-        for coord in snake[1:]:
-            board[coord["x"], coord["y"]] = body
+        for coord in snake["body"][1:]:
+            board[coord["y"], coord["x"]] = body
 
     return {"snakes": snakes, "turn": d["turn"], "board": board}
