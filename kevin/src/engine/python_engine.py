@@ -21,6 +21,8 @@ class PythonStandard4Player(SnakeEngine):
     turn_num: int
 
     rng_key: jax.Array | jrand.PRNGKeyArray
+    seed: int
+
     snakes: dict[str: Snake]
 
     #  Coords are in the shape (x, y)
@@ -74,7 +76,7 @@ class PythonStandard4Player(SnakeEngine):
     def __init__(self):
 
         #  Initialize with a random seed
-        self.rng_key = jrand.PRNGKey(random.randrange(sys.maxsize))
+        self.seed(random.randrange(sys.maxsize))
         self.reset()
 
     def player_count(self) -> int:
@@ -224,6 +226,8 @@ class PythonStandard4Player(SnakeEngine):
         self.hazards = []
         self.board = jnp.zeros([self.width(), self.height()], dtype=int)
 
+        self.seed(self.seed) # Reset the prng
+
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.
         xn, xd, xx = 1, (self.width() - 1) / 2, self.width() - 2
@@ -255,4 +259,5 @@ class PythonStandard4Player(SnakeEngine):
         self._update_board()
 
     def seed(self, seed) -> None:
+        self.seed = seed
         self.rng_key = jrand.PRNGKey(seed)
