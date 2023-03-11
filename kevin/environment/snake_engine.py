@@ -33,7 +33,7 @@ class SnakeEngine(ABC):
 class MultiSnakeEnv(ParallelEnv):
     r"""Takes a SnakeEngine and maps it to a pettingzoo environment.
     Observations are of the form
-        "snakes": [id: 0-15]["health": 0-100, "squad": 0-3, "you": T-F]
+        "snakes": [id: 0-15]["health": 0-100, "you": T-F]
         "board": [x: 0-w][y:0-h][cell: empty=0, food=1, hazard=2, snake head = 2(id)+3, body= 2(id)+4 => 0 .. 30]
     """
 
@@ -52,10 +52,11 @@ class MultiSnakeEnv(ParallelEnv):
                 "snakes": spaces.Tuple(((spaces.Dict(
                     {
                         "health": spaces.Box(0, 100, dtype=int),
-                        "squad": spaces.Discrete(4),
                         "you": spaces.Discrete(2)
                     }
                 )),)*4),  # There are 4 snakes for now
+
+                #  Board dimensions
                 "board": spaces.Box(low=jnp.ndarray([0, 0]), high=jnp.ndarray([10, 10]), dtype=int),
             }
         )
