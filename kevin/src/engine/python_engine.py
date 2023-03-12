@@ -204,9 +204,35 @@ class PythonStandard4Player(SnakeEngine):
                     if len(snake.body) <= len(snake2.body):
                         eliminated.add(id)
 
+        #  Remove eaten food
+        for morsel in eaten_food:
+            if morsel in self.food:
+                self.food.remove(morsel)
+
         #  Eliminate snakes
         for id in eliminated:
             self.snakes[id].body = []
+
+    def _place_food(self):
+        r"""
+        Places new food on the board. It seems like default BS keep 1 food at all times, and have a 15% chance
+        of spawning new food if there is already food.
+        """
+        if self.turn_num == 0:
+            return
+
+        min_food = 1
+        food_chance = 15 #  percent
+        curr_food = len(self.food)
+
+        if curr_food < min_food:
+            self.food.append(self._random_unoccupied_pt())
+            return
+
+        roll = jrand.uniform(self._random(), shape=1, dtype=int, minval=0, maxval=1)
+        if roll < food_chance:
+            self.food.append(self._random_unoccupied_pt())
+
 
     def get_observation(self, snake_id: str) -> dict:
         num = int(snake_id[6:])
