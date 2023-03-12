@@ -1,9 +1,9 @@
 import random
 import sys
 
-import jax.random as jrand
-import jax.numpy as jnp
 import jax
+import jax.numpy as jnp
+import jax.random as jrand
 
 from kevin.src.engine.snake_engine import SnakeEngine
 
@@ -56,7 +56,7 @@ class PythonStandard4Player(SnakeEngine):
         if pt in self.hazards:
             return False
 
-        for _, snake in self.snakes:
+        for _, snake in self.snakes.items():
             if pt in snake.body:
                 return False
 
@@ -76,14 +76,31 @@ class PythonStandard4Player(SnakeEngine):
                 break
         return x, y
 
-    def __init__(self):
+    def __init__(self, seed: int | None = None):
         r"""
         Initialize the game with a random seed
         """
 
         #  Initialize with a random seed
-        self.seed(random.randrange(sys.maxsize))
+        if seed is None:
+            seed = random.randrange(sys.maxsize)
+        self.seed(seed)
         self.reset()
+
+    def __getitem__(self, item):
+        if item == 0:
+            return self.snakes_array
+        if item == 1:
+            return self.turn_num
+        if item == 2:
+            return self.board
+
+        raise IndexError
+
+    def __str__(self):
+        turn = "Turn {}.".format(self.turn_num)
+        snakes = {"Snake {}: {}".format(i, snake["health"]) for i, snake in enumerate(self.snakes_array)}
+        return "\n{}\n{}\n{}\n".format(turn, snakes, jnp.rot90(self.board))
 
     def player_count(self) -> int:
         return 4
@@ -108,7 +125,7 @@ class PythonStandard4Player(SnakeEngine):
         for x, y in self.hazards:
             board = board.at[x, y].set(2)
 
-        for name, snake in self.snakes:
+        for name, snake in self.snakes.items():
 
             #  Snake names are always of the form snake_i
             num = int(name[6:])
@@ -301,9 +318,9 @@ class PythonStandard4Player(SnakeEngine):
         self.snakes = {}
         self.pending_moves = {}
         self.snakes_array = [{
-                "health": 100,
-                "you": 0
-            }] * self.player_count()
+            "health": 100,
+            "you": 0
+        }] * self.player_count()
         for i in range(self.player_count()):
             name = "snake_" + str(i)
             self.snakes[name] = Snake()
@@ -336,19 +353,19 @@ class PythonStandard4Player(SnakeEngine):
         if self.player_count() > 8:
             raise NotImplementedError("Only supports up to 8 players.")
 
-        for i, (_, snake) in enumerate(self.snakes):
+        for i, (_, snake) in enumerate(self.snakes.items()):
             snake.body += [points[i]] * 5  # Starting length is 5
 
         #  Place starting food. BS default behaviour is to place a food intercardinal to each snake. Plus one center.
         #  But, do not place food in a corner or adjacent to the center square. todo except on small boards.
         cx, cy = int((self.width() - 1) / 2), int((self.height() - 1) / 2)
-        for _, snake in self.snakes:
+        for _, snake in self.snakes.items():
             x, y = snake.body[0]
             tentative = [
                 (x + 1, y + 1),
                 (x + 1, y - 1),
-                (x - 1), (y + 1),
-                (x - 1), (y - 1),
+                (x - 1, y + 1),
+                (x - 1, y - 1),
             ]
 
             for x, y in tentative:

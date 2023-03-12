@@ -2,3 +2,4 @@ PettingZoo~=1.22.3
 jax~=0.4.6
 Flask~=2.2.3
 gymnasium~=0.27.1
+pytest~=7.2.2
