@@ -21,7 +21,7 @@ class PythonStandard4Player(SnakeEngine):
     turn_num: int
 
     rng_key: jax.Array | jrand.PRNGKeyArray
-    seed: int
+    rng_seed: int
 
     snakes: dict[str: Snake]
 
@@ -65,15 +65,21 @@ class PythonStandard4Player(SnakeEngine):
         Places food in a random unoccupied location
         :return:
         """
-        point: tuple[int, int]
+        x: int
+        y: int
         while True:
-            point = jrand.uniform(self._random(), shape=[2], dtype=int, minval=[0, 0],
-                                  maxval=(self.width(), self.height()))
-            if not self._is_occupied(point):
+            point = jrand.uniform(self._random(), shape=[2], dtype=int,
+                                  minval=jnp.array([0, 0]),
+                                  maxval=jnp.array([self.width(), self.height()]))
+            x, y = point.at[0], point.at[1]
+            if not self._is_occupied((x, y)):
                 break
-        return point
+        return x, y
 
     def __init__(self):
+        r"""
+        Initialize the game with a random seed
+        """
 
         #  Initialize with a random seed
         self.seed(random.randrange(sys.maxsize))
@@ -88,19 +94,19 @@ class PythonStandard4Player(SnakeEngine):
     def width(self) -> int:
         return 11
 
-    def _update_board(self):
+    def _update_board(self) -> jax.Array:
         """
         Update the board and snake list, as well as empty points
         """
 
         #  Empty the board
-        self.board = jnp.zeros([self.width(), self.height()], dtype=int)
+        board = jnp.zeros([self.width(), self.height()], dtype=int)
 
         for x, y in self.food:
-            self.board[x, y] = 1
+            board = board.at[x, y].set(1)
 
         for x, y in self.hazards:
-            self.board[x, y] = 2
+            board = board.at[x, y].set(2)
 
         for name, snake in self.snakes:
 
@@ -119,12 +125,14 @@ class PythonStandard4Player(SnakeEngine):
                 continue
 
             for x, y in snake.body[:1]:
-                self.board[x, y] = head
+                board = board.at[x, y].set(head)
 
             for x, y in snake.body[1:]:
-                self.board[x, y] = body
+                board = board.at[x, y].set(body)
 
-    def _elminiated(self, snake_id: str) -> bool:
+        return board
+
+    def _eliminated(self, snake_id: str) -> bool:
         r"""
         Check if a snake is elminated. A snake is eliminated if it has 0 length.
         :param snake_id:
@@ -137,22 +145,22 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Compute next move targets
         def compute_next(snake, move):
-            head = snake.body[0]
+            h = snake.body[0]
             match move:
-                case 0: #  Up
-                    return (x, y+1 for x, y in head)
+                case 0:  # Up
+                    return (x, y + 1 for x, y in h)
 
-                case 1: # right
-                    return (x+1, y for x, y in head)
+                case 1:  # right
+                    return (x + 1, y for x, y in h)
 
-                case 2: # down
-                    return (x, y-1 for x, y in head)
+                case 2:  # down
+                    return (x, y - 1 for x, y in h)
 
-                case 3: # left
-                    return (x-1, y for x, y in head)
+                case 3:  # left
+                    return (x - 1, y for x, y in h)
 
-
-        eaten_food: list[tuple[int, int]] #  Two snakes can eat the same food. It only disappears after resolving.
+        # Two snakes can eat the same food. It only disappears after resolving.
+        eaten_food: list[tuple[int, int]] = []
 
         #  Apply move
         for id, snake in self.snakes:
@@ -169,11 +177,11 @@ class PythonStandard4Player(SnakeEngine):
 
             if head in self.food:
                 snake.health = 100
-                snake.body.append(snake.body[len(snake.body)-1])
+                snake.body.append(snake.body[len(snake.body) - 1])
                 eaten_food.append(head)
 
         #  Check elimination conditions
-        eliminated: set = {}
+        eliminated: set = set()
         for id, snake in self.snakes:
 
             head = snake.body[0]
@@ -222,17 +230,16 @@ class PythonStandard4Player(SnakeEngine):
             return
 
         min_food = 1
-        food_chance = 15 #  percent
+        food_chance = 15  # percent
         curr_food = len(self.food)
 
         if curr_food < min_food:
             self.food.append(self._random_unoccupied_pt())
             return
 
-        roll = jrand.uniform(self._random(), shape=1, dtype=int, minval=0, maxval=1)
-        if roll < food_chance:
+        roll = jrand.uniform(self._random(), dtype=int, minval=0, maxval=1)
+        if roll.at[0] < food_chance:
             self.food.append(self._random_unoccupied_pt())
-
 
     def get_observation(self, snake_id: str) -> dict:
         num = int(snake_id[6:])
@@ -248,7 +255,7 @@ class PythonStandard4Player(SnakeEngine):
     def get_terminated(self, snake_id) -> bool:
 
         #  A snake is dead if its body has size 0
-        return self._elminiated(snake_id)
+        return self._eliminated(snake_id)
 
     def get_truncated(self, snake_id) -> bool:
         r"""
@@ -267,22 +274,23 @@ class PythonStandard4Player(SnakeEngine):
         :param snake_id:
         :return:
         """
-        if self._elminiated(snake_id):
+        if self._eliminated(snake_id):
             return -1.
 
         #  Check if last snake alive
-        alive_snakes = filter(lambda id: not self._elminiated(id), [id for id, _ in self.snakes])
-        if snake_id in alive_snakes and len(alive_snakes) == 1:
+        alive_snakes = filter(lambda id: not self._eliminated(id), [id for id, _ in self.snakes])
+        if snake_id in alive_snakes and len(tuple(alive_snakes)) == 1:
             return 1.
 
         return 0.
-
 
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
 
     def step(self) -> None:
-        pass
+        self._move_snakes()
+        self._place_food()
+        self.board = self._update_board()
 
     def reset(self) -> None:
 
@@ -291,7 +299,7 @@ class PythonStandard4Player(SnakeEngine):
         self.snakes = {}
         self.pending_moves = {}
         for i in range(self.player_count()):
-            name = "snake_" + i
+            name = "snake_" + str(i)
             self.snakes[name] = Snake()
             self.snakes[name].id = name
             self.snakes[name].health = 100
@@ -308,7 +316,7 @@ class PythonStandard4Player(SnakeEngine):
         self.hazards = []
         self.board = jnp.zeros([self.width(), self.height()], dtype=int)
 
-        self.seed(self.seed) # Reset the prng
+        self.seed(self.rng_seed)  # Reset the prng
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.
@@ -324,25 +332,25 @@ class PythonStandard4Player(SnakeEngine):
         order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
         cardinals = [cardinals[i] for i in order]
 
-        points = points + cardinals
+        points = corners + cardinals
 
         # todo add support for more snakes. Currently goes up to 8.
         if self.player_count() > 8:
             raise NotImplementedError("Only supports up to 8 players.")
 
         for i, (_, snake) in enumerate(self.snakes):
-            snake.body += [i]*5 #  Starting length is 5
+            snake.body += [points[i]] * 5  # Starting length is 5
 
         #  Place starting food. BS default behaviour is to place a food intercardinal to each snake. Plus one center.
         #  But, do not place food in a corner or adjacent to the center square. todo except on small boards.
-        cx, cy = (self.width() - 1) / 2, (self.height() - 1) / 2
+        cx, cy = int((self.width() - 1) / 2), int((self.height() - 1) / 2)
         for _, snake in self.snakes:
             x, y = snake.body[0]
             tentative = [
-                (x+1, y+1),
-                (x+1, y-1),
-                (x-1), (y+1),
-                (x-1), (y-1),
+                (x + 1, y + 1),
+                (x + 1, y - 1),
+                (x - 1), (y + 1),
+                (x - 1), (y - 1),
             ]
 
             for x, y in tentative:
@@ -354,7 +362,7 @@ class PythonStandard4Player(SnakeEngine):
                     tentative.remove((x, y))
                     continue
 
-                if abs(x-cx) + abs(y-cy) <= 2: #  Manhattan distance from center
+                if abs(x - cx) + abs(y - cy) <= 2:  # Manhattan distance from center
                     tentative.remove((x, y))
 
             order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
@@ -367,8 +375,8 @@ class PythonStandard4Player(SnakeEngine):
         if not self._is_occupied((cx, cy)):
             self.food.append((cx, cy))
 
-        self._update_board()
+        self.board = self._update_board()
 
     def seed(self, seed) -> None:
-        self.seed = seed
+        self.rng_seed = seed
         self.rng_key = jrand.PRNGKey(seed)
