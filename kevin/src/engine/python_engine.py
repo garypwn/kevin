@@ -261,6 +261,23 @@ class PythonStandard4Player(SnakeEngine):
     def global_observation(self) -> dict:
         return {"snakes": self.snakes_array, "turn": self.turn_num, "board": self.board}
 
+    def get_reward(self, snake_id) -> float:
+        r"""
+        Returns 1. if the snake won, -1 if the snake lost, 0 otherwise.
+        :param snake_id:
+        :return:
+        """
+        if self._elminiated(snake_id):
+            return -1.
+
+        #  Check if last snake alive
+        alive_snakes = filter(lambda id: not self._elminiated(id), [id for id, _ in self.snakes])
+        if snake_id in alive_snakes and len(alive_snakes) == 1:
+            return 1.
+
+        return 0.
+
+
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
 
