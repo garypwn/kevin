@@ -124,14 +124,6 @@ class PythonStandard4Player(SnakeEngine):
             for x, y in snake.body[1:]:
                 self.board[x, y] = body
 
-    def _elminate_snake(self, snake_id: str):
-        r"""
-        Eliminate a snake by setting its length to 0
-        :param snake_id:
-        :return:
-        """
-        pass
-
     def _elminiated(self, snake_id: str) -> bool:
         r"""
         Check if a snake is elminated. A snake is eliminated if it has 0 length.
@@ -139,6 +131,7 @@ class PythonStandard4Player(SnakeEngine):
         :return: True if the snake is eliminated
         """
         return len(self.snakes[snake_id].body) < 1
+
     def _move_snakes(self):
         r""" Helper for step() """
 
@@ -158,16 +151,62 @@ class PythonStandard4Player(SnakeEngine):
                 case 3: # left
                     return (x-1, y for x, y in head)
 
-        targets = map(self.pending_moves, lambda name, move: compute_next(self.snakes[name], move))
 
-        #  todo all these in order
-        #  Apply damage todo
-        #  Eat food todo
-        #  Check for out of bounds todo
-        #  Check for out of health todo
-        #  Check for collision with snake body todo
-        #  Check for collision with snake head todo
-        #  Eliminate snakes after all checks todo
+        eaten_food: list[tuple[int, int]] #  Two snakes can eat the same food. It only disappears after resolving.
+
+        #  Apply move
+        for id, snake in self.snakes:
+
+            #  Move the head and tail
+            snake.body.insert(0, compute_next(snake, self.pending_moves[id]))
+            snake.body.pop()
+
+            head = snake.body[0]
+            snake.health -= 1
+
+            if head in self.hazards:
+                snake.health -= 15
+
+            if head in self.food:
+                snake.health = 100
+                snake.body.append(snake.body[len(snake.body)-1])
+                eaten_food.append(head)
+
+        #  Check elimination conditions
+        eliminated: set = {}
+        for id, snake in self.snakes:
+
+            head = snake.body[0]
+            x, y = head
+
+            #  Check out of bounds
+            if x < 0 or y < 0:
+                eliminated.add(id)
+
+            if x >= self.width() or y >= self.height():
+                eliminated.add(id)
+
+            #  Check out of health
+            if snake.health <= 0:
+                eliminated.add(id)
+
+            #  Check for collision with snake body (or self)
+            for id2, snake2 in self.snakes:
+                if head in snake2.body[1:]:
+                    eliminated.add(id)
+
+            #  Check for head-to-head collisions
+            for id2, snake2 in self.snakes:
+                if id2 == id:
+                    continue
+
+                if head == snake2[0]:
+                    if len(snake.body) <= len(snake2.body):
+                        eliminated.add(id)
+
+        #  Eliminate snakes
+        for id in eliminated:
+            self.snakes[id].body = []
 
     def get_observation(self, snake_id: str) -> dict:
         num = int(snake_id[6:])
@@ -183,7 +222,7 @@ class PythonStandard4Player(SnakeEngine):
     def get_terminated(self, snake_id) -> bool:
 
         #  A snake is dead if its body has size 0
-        return len(self.snakes[snake_id].body) == 0
+        return self._elminiated(snake_id)
 
     def get_truncated(self, snake_id) -> bool:
         r"""
