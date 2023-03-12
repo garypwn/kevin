@@ -54,7 +54,9 @@ class MultiSnakeEnv(ParallelEnv):
 
     def reset(self, seed: Optional[int] = None, return_info: bool = False, options: Optional[dict] = None) -> ObsDict:
         super().reset(seed=seed)
-        self.game.seed(seed)
+        if seed:
+            self.game.seed(seed)
+
         self.game.reset()
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}

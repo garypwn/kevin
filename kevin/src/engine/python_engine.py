@@ -307,19 +307,48 @@ class PythonStandard4Player(SnakeEngine):
         order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
         cardinals = [cardinals[i] for i in order]
 
-        points = corners.append(cardinals)
+        points = points + cardinals
 
         # todo add support for more snakes. Currently goes up to 8.
         if self.player_count() > 8:
             raise NotImplementedError("Only supports up to 8 players.")
 
         for i, (_, snake) in enumerate(self.snakes):
-            snake.body.append(points[i])
+            snake.body += [i]*5 #  Starting length is 5
 
-        #  Place food randomly, one per snake. todo Is this how BS actually behaves?
-        for i in range(self.player_count()):
-            point = self._random_unoccupied_pt()
-            self.food.append(point)
+        #  Place starting food. BS default behaviour is to place a food intercardinal to each snake. Plus one center.
+        #  But, do not place food in a corner or adjacent to the center square. todo except on small boards.
+        cx, cy = (self.width() - 1) / 2, (self.height() - 1) / 2
+        for _, snake in self.snakes:
+            x, y = snake.body[0]
+            tentative = [
+                (x+1, y+1),
+                (x+1, y-1),
+                (x-1), (y+1),
+                (x-1), (y-1),
+            ]
+
+            for x, y in tentative:
+                if (x, y) in corners:
+                    tentative.remove((x, y))
+                    continue
+
+                if self._is_occupied((x, y)):
+                    tentative.remove((x, y))
+                    continue
+
+                if abs(x-cx) + abs(y-cy) <= 2: #  Manhattan distance from center
+                    tentative.remove((x, y))
+
+            order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
+            tentative = [tentative[i] for i in order]
+
+            if len(tentative) != 0:
+                self.food.append(tentative[0])
+
+        # Place food in center
+        if not self._is_occupied((cx, cy)):
+            self.food.append((cx, cy))
 
         self._update_board()
 
