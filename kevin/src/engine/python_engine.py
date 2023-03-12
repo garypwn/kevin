@@ -30,7 +30,7 @@ class PythonStandard4Player(SnakeEngine):
     hazards: list[tuple[int, int]] = []
 
     #  For presenting in observations. Updated every step.
-    snakes_array: list[dict[str: int]]  # For observations
+    snakes_array: list[dict[str: int]] = []  # For observations
     board: jax.Array
 
     #  Submitted moves
@@ -148,16 +148,16 @@ class PythonStandard4Player(SnakeEngine):
             h = snake.body[0]
             match move:
                 case 0:  # Up
-                    return (x, y + 1 for x, y in h)
+                    return ((x, y + 1) for x, y in h)
 
                 case 1:  # right
-                    return (x + 1, y for x, y in h)
+                    return ((x + 1, y) for x, y in h)
 
                 case 2:  # down
-                    return (x, y - 1 for x, y in h)
+                    return ((x, y - 1) for x, y in h)
 
                 case 3:  # left
-                    return (x - 1, y for x, y in h)
+                    return ((x - 1, y) for x, y in h)
 
         # Two snakes can eat the same food. It only disappears after resolving.
         eaten_food: list[tuple[int, int]] = []
@@ -294,29 +294,27 @@ class PythonStandard4Player(SnakeEngine):
 
     def reset(self) -> None:
 
+        self.seed(self.rng_seed)  # Reset the prng
+
         #  Reset all state
         self.turn_num = 0
         self.snakes = {}
         self.pending_moves = {}
+        self.snakes_array = [{
+                "health": 100,
+                "you": 0
+            }] * self.player_count()
         for i in range(self.player_count()):
             name = "snake_" + str(i)
             self.snakes[name] = Snake()
             self.snakes[name].id = name
             self.snakes[name].health = 100
             self.snakes[name].body = []
-
-            self.snakes_array[i] = {
-                "health": 100,
-                "you": 0
-            }
-
             self.pending_moves[name] = 0
 
         self.food = []
         self.hazards = []
         self.board = jnp.zeros([self.width(), self.height()], dtype=int)
-
-        self.seed(self.rng_seed)  # Reset the prng
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.
