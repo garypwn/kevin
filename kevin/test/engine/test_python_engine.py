@@ -1,4 +1,3 @@
-import jax
 import pytest
 
 from kevin.src.engine.python_engine import PythonStandard4Player
@@ -40,3 +39,14 @@ def test_count_initial_food_and_snakes(seed: int):
 
     assert food_count == 5
     assert snake_count == 4
+
+
+def test_snakes_move(seed: int = 0):
+    game = PythonStandard4Player(seed)
+    print(game)
+    for name, move in zip(game.snakes, [0, 3, 1, 2]):
+        game.submit_move(name, move)
+
+    for i in range(9):
+        game.step()
+        print(game)

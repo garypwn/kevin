@@ -9,6 +9,10 @@ from kevin.src.engine.snake_engine import SnakeEngine
 
 
 class Snake:
+
+    def __getitem__(self, item):
+        return self.body[item]
+
     id: str
     health: int
     body: list[tuple[int, int]]
@@ -68,10 +72,10 @@ class PythonStandard4Player(SnakeEngine):
         x: int
         y: int
         while True:
-            point = jrand.uniform(self._random(), shape=[2], dtype=int,
+            point = jrand.randint(self._random(), shape=[2],
                                   minval=jnp.array([0, 0]),
                                   maxval=jnp.array([self.width(), self.height()]))
-            x, y = point.at[0], point.at[1]
+            x, y = point[0], point[1]
             if not self._is_occupied((x, y)):
                 break
         return x, y
@@ -161,29 +165,35 @@ class PythonStandard4Player(SnakeEngine):
         r""" Helper for step() """
 
         #  Compute next move targets
-        def compute_next(snake, move):
-            h = snake.body[0]
+        def move_to_pt(pt: tuple[int, int], move) -> tuple[int, int]:
+            x, y = pt
             match move:
                 case 0:  # Up
-                    return ((x, y + 1) for x, y in h)
-
+                    return x, y + 1
                 case 1:  # right
-                    return ((x + 1, y) for x, y in h)
+                    return x + 1, y
 
                 case 2:  # down
-                    return ((x, y - 1) for x, y in h)
+                    return x, y - 1
 
                 case 3:  # left
-                    return ((x - 1, y) for x, y in h)
+                    return x - 1, y
+
+            raise ValueError
 
         # Two snakes can eat the same food. It only disappears after resolving.
         eaten_food: list[tuple[int, int]] = []
 
         #  Apply move
-        for id, snake in self.snakes:
+        for id, snake in self.snakes.items():
+
+            # Dead snakes don't move
+            if len(snake.body) == 0:
+                continue
 
             #  Move the head and tail
-            snake.body.insert(0, compute_next(snake, self.pending_moves[id]))
+            old_head = snake.body[0]
+            snake.body.insert(0, move_to_pt(old_head, self.pending_moves[id]))
             snake.body.pop()
 
             head = snake.body[0]
@@ -199,7 +209,11 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Check elimination conditions
         eliminated: set = set()
-        for id, snake in self.snakes:
+        for id, snake in self.snakes.items():
+
+            if len(snake.body) < 1:
+                #  Snake already eliminated
+                continue
 
             head = snake.body[0]
             x, y = head
@@ -216,12 +230,17 @@ class PythonStandard4Player(SnakeEngine):
                 eliminated.add(id)
 
             #  Check for collision with snake body (or self)
-            for id2, snake2 in self.snakes:
+            for id2, snake2 in self.snakes.items():
                 if head in snake2.body[1:]:
                     eliminated.add(id)
 
             #  Check for head-to-head collisions
-            for id2, snake2 in self.snakes:
+            for id2, snake2 in self.snakes.items():
+
+                #  Dead snakes can't be collided with
+                if len(snake2.body) < 1:
+                    continue
+
                 if id2 == id:
                     continue
 
@@ -254,8 +273,8 @@ class PythonStandard4Player(SnakeEngine):
             self.food.append(self._random_unoccupied_pt())
             return
 
-        roll = jrand.uniform(self._random(), dtype=int, minval=0, maxval=1)
-        if roll.at[0] < food_chance:
+        roll = jrand.randint(self._random(), [1], minval=0, maxval=100)
+        if roll[0] < food_chance:
             self.food.append(self._random_unoccupied_pt())
 
     def get_observation(self, snake_id: str) -> dict:
@@ -308,6 +327,7 @@ class PythonStandard4Player(SnakeEngine):
         self._move_snakes()
         self._place_food()
         self.board = self._update_board()
+        self.turn_num += 1
 
     def reset(self) -> None:
 
