@@ -50,3 +50,48 @@ def test_snakes_move(seed: int = 0):
     for i in range(9):
         game.step()
         print(game)
+
+
+def test_observations_have_unique_perspective(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_same_turn_observations_have_same_board(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_elimination_on_wall(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_elimination_on_body_collision(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_elimination_on_head_collision(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_elimination_on_0_hp(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_reward_on_victory(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_reward_on_defeat(seed: int = 0):
+    #  todo
+    pass
+
+
+def test_reward_on_neutral(seed: int = 0):
+    #  todo
+    pass
