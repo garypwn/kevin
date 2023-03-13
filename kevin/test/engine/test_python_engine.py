@@ -41,15 +41,27 @@ def test_count_initial_food_and_snakes(seed: int):
     assert snake_count == 4
 
 
-def test_snakes_move(seed: int = 0):
+@pytest.mark.parametrize("seed", range(0, 200000, 10013))
+def test_snake_heads_move(seed: int = 0):
     game = PythonStandard4Player(seed)
     print(game)
     for name, move in zip(game.snakes, [0, 3, 1, 2]):
         game.submit_move(name, move)
 
-    for i in range(9):
-        game.step()
-        print(game)
+    game.step()
+    print(game)
+
+    values = [0 for i in range(3+2*game.num_players())]
+    
+    for row in game.board.tolist():
+        for i in row:
+            values[i] += 1
+    
+    for i in range(game.num_players()):
+        # check there are 4 heads and 4 bodies
+        assert values[2*i + 2] == game.num_players()
+        assert values[2*i + 3] == game.num_players() 
+
 
 
 def test_observations_have_unique_perspective(seed: int = 0):
@@ -93,5 +105,10 @@ def test_reward_on_defeat(seed: int = 0):
 
 
 def test_reward_on_neutral(seed: int = 0):
+    #  todo
+    pass
+
+
+def food_grows_snakes(seed: int = 0)
     #  todo
     pass
