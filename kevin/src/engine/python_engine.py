@@ -100,7 +100,7 @@ class PythonStandard4Player(SnakeEngine):
     def __str__(self):
         turn = "Turn {}.".format(self.turn_num)
         snakes = {"Snake {}: {}".format(i, snake["health"]) for i, snake in enumerate(self.snakes_array)}
-        return "\n{}\n{}\n{}\n".format(turn, snakes, jnp.rot90(self.board))
+        return "\n{}\n{}\n{}\n".format(turn, snakes, self.board)
 
     def player_count(self) -> int:
         return 4
@@ -335,8 +335,8 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.
-        xn, xd, xx = 1, (self.width() - 1) / 2, self.width() - 2
-        yn, yd, yx = 1, (self.height() - 1) / 2, self.height() - 2
+        xn, xd, xx = 1, (self.width() - 1) // 2, self.width() - 2
+        yn, yd, yx = 1, (self.height() - 1) // 2, self.height() - 2
 
         corners = [(xn, yn), (xn, yx), (xx, yn), (xx, yx)]
         cardinals = [(xn, yd), (xd, yn), (xd, yx), (xx, yd)]
@@ -358,18 +358,23 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Place starting food. BS default behaviour is to place a food intercardinal to each snake. Plus one center.
         #  But, do not place food in a corner or adjacent to the center square. todo except on small boards.
-        cx, cy = int((self.width() - 1) / 2), int((self.height() - 1) / 2)
+        cx, cy = (self.width() - 1) // 2, (self.height() - 1) // 2
         for _, snake in self.snakes.items():
-            x, y = snake.body[0]
+            hx, hy = snake.body[0]
             tentative = [
-                (x + 1, y + 1),
-                (x + 1, y - 1),
-                (x - 1, y + 1),
-                (x - 1, y - 1),
+                (hx + 1, hy + 1),
+                (hx + 1, hy - 1),
+                (hx - 1, hy + 1),
+                (hx - 1, hy - 1),
             ]
 
-            for x, y in tentative:
-                if (x, y) in corners:
+            for x, y in tentative.copy():
+                if (x, y) in [
+                    (0, 0),
+                    (0, self.height()-1),
+                    (self.width()-1, 0),
+                    (self.width()-1, self.height()-1)
+                ]:
                     tentative.remove((x, y))
                     continue
 
@@ -377,10 +382,14 @@ class PythonStandard4Player(SnakeEngine):
                     tentative.remove((x, y))
                     continue
 
-                if abs(x - cx) + abs(y - cy) <= 2:  # Manhattan distance from center
+                #  Food must be further than snake from center on at least one axis
+                def bad(pn, sn, cn):
+                    return abs(pn - cn) <= abs(sn-cn)
+                if bad(x, hx, cx) and bad(y, hy, cy):
                     tentative.remove((x, y))
 
-            order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
+            permute = [i for i, _ in enumerate(tentative)]
+            order = jrand.permutation(self._random(), jnp.array(permute))
             tentative = [tentative[i] for i in order]
 
             if len(tentative) != 0:
