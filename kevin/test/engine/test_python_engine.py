@@ -104,7 +104,7 @@ def add_snake(game: PythonStandard4Player, snake: Snake):
     game.num_players += 1
     game._update_board()
 
-def test_elimination_on_wall(seed: int = 0):
+def test_elimination_on_wall():
     
     game = generate_empty_board()
 
@@ -126,7 +126,7 @@ def test_elimination_on_wall(seed: int = 0):
 
 
 
-def test_elimination_on_body_collision(seed: int = 0):
+def test_elimination_on_single_body_collision():
     game = generate_empty_board()
 
     #  Put a snake near the middle
@@ -147,8 +147,36 @@ def test_elimination_on_body_collision(seed: int = 0):
     print(game)
     assert len(game.snakes["snake_0"].body) == 0
 
+def test_elimination_on_double_body_collision():
+    game = generate_empty_board()
 
-def test_elimination_on_head_collision(seed: int = 0):
+    #  Put a snake near the middle
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(5,5), (5,6), (5, 7)]
+    add_snake(game, new_snake)
+
+    #  Put another snake directly next to it
+    new_snake = Snake()
+    new_snake.id = "snake_1"
+    new_snake.health = 100
+    new_snake.body = [(4,5), (4,6)]
+    add_snake(game, new_snake)
+
+    print(game)
+
+    #  Move snakes toward eachother. They should both body collide
+    game.submit_move("snake_0", 3)
+    game.submit_move("snake_1", 1)
+    game.step()
+    print(game)
+
+    #  Check that both snakes are defeated
+    assert game._eliminated("snake_0")
+    assert game._eliminated("snake_1")
+
+def test_elimination_on_head_collision_different_sizes(seed: int = 0):
     game = generate_empty_board()
 
     #  Put a snake near the middle
@@ -175,6 +203,35 @@ def test_elimination_on_head_collision(seed: int = 0):
 
     #  Check that only snake_1 is dead
     assert len(game.snakes["snake_0"].body) == 3
+    assert game._eliminated("snake_1")
+
+def test_elimination_on_head_collision_same_sizes(seed: int = 0):
+    game = generate_empty_board()
+
+    #  Put a snake near the middle
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(5,5), (5,6)]
+    add_snake(game, new_snake)
+
+    #  Put another smaller snake nearby
+    new_snake = Snake()
+    new_snake.id = "snake_1"
+    new_snake.health = 100
+    new_snake.body = [(3,5), (3,6)]
+    add_snake(game, new_snake)
+
+    print(game)
+
+    #  Move both snakes to (4,5)
+    game.submit_move("snake_0", 3)
+    game.submit_move("snake_1", 1)
+    game.step()
+    print(game)
+
+    #  Check that both snakes are dead
+    assert game._eliminated("snake_0")
     assert game._eliminated("snake_1")
 
 def test_elimination_on_0_hp(seed: int = 0):
