@@ -1,6 +1,7 @@
+import jax
 import pytest
 
-from kevin.src.engine.python_engine import PythonStandard4Player, Snake
+from kevin.src.engine.python_engine import PythonStandard4Player, Snake, BoardUpdater
 import jax.numpy as jnp
 
 
@@ -341,7 +342,6 @@ def test_food_grows_snakes(seed: int = 0):
 
 @pytest.mark.parametrize("seed", range(0, 50000, 10013))
 def test_food_spawn_determinism(seed: int):
-
     # two empty boards with the same seed
     games = generate_empty_board(seed), generate_empty_board(seed)
     for i in range(50):
@@ -351,3 +351,64 @@ def test_food_spawn_determinism(seed: int):
         print(games[0])
         print(games[1])
         assert games[0].food == games[1].food
+
+
+def test_jax_pr_board_fn():
+    game = create_game(0)
+    food = game.food
+    snakes = list([snake.body for _, snake in game.snakes.items()])
+    updater = BoardUpdater(11, 11, 4)
+    print(jax.make_jaxpr(updater.finite_board)(snakes, food))
+
+
+def test_board_fn_correctness():
+    game = generate_empty_board()
+
+    #  Spawn food
+    add_food(game, [(8, 8), (9, 9), (10, 10)])
+
+    # Add snakes
+    for i in range(4):
+        snake = Snake()
+        snake.id = "snake_{}".format(i)
+        snake.health = 100
+        snake.body = [(3, i), (4, i), (5, i), (6, i)]
+        add_snake(game, snake)
+
+    food = game.food
+    snakes = list([snake.body for _, snake in game.snakes.items()])
+    updater = BoardUpdater(11, 11, 4)
+
+    board_i = updater.infinite_board(snakes, food)
+    print(board_i)
+    board_j = updater.finite_board(snakes, food)
+    print(board_j)
+
+    assert jnp.array_equal(board_i, board_j)
+
+
+def test_jitted_board_fn_correctness():
+    game = generate_empty_board()
+
+    #  Spawn food
+    add_food(game, [(8, 8), (9, 9), (10, 10)])
+
+    # Add snakes
+    for i in range(4):
+        snake = Snake()
+        snake.id = "snake_{}".format(i)
+        snake.health = 100
+        snake.body = [(3, i), (4, i), (5, i), (6, i)]
+        add_snake(game, snake)
+
+    food = game.food
+    snakes = list([snake.body for _, snake in game.snakes.items()])
+    updater = BoardUpdater(11, 11, 4)
+    jitted_fn = jax.jit(updater.finite_board)
+
+    board_i = updater.infinite_board(snakes, food)
+    print(board_i)
+    board_j = jitted_fn(snakes, food)
+    print(board_j)
+
+    assert jnp.array_equal(board_i, board_j)

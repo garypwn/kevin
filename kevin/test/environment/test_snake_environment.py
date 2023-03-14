@@ -5,7 +5,7 @@ import pytest
 from pettingzoo.test import parallel_api_test, parallel_seed_test, performance_benchmark
 from pettingzoo.utils import parallel_to_aec
 
-from kevin.src.engine.python_engine import PythonStandard4Player
+from kevin.src.engine.python_engine import PythonStandard4Player, BoardUpdater
 from kevin.src.environment.snake_environment import MultiSnakeEnv
 
 
@@ -26,14 +26,24 @@ def test_pettingzoo_seed_test(seed: int):
 
 def test_performance_benchmark():
     # Requires manual inspection
-    game = PythonStandard4Player()
+    updater = BoardUpdater(11, 11, 4, False)
+    game = PythonStandard4Player(updater=updater)
+    env = MultiSnakeEnv(game)
+    aec_env = parallel_to_aec(env)
+    performance_benchmark(aec_env)
+
+
+def test_jitted_performance_benchmark():
+    # Requires manual inspection
+    updater = BoardUpdater(11, 11, 4, True)
+    updater.jitted_board([], []).block_until_ready()
+    game = PythonStandard4Player(updater=updater)
     env = MultiSnakeEnv(game)
     aec_env = parallel_to_aec(env)
     performance_benchmark(aec_env)
 
 
 def test_profile_performance():
-
     game = PythonStandard4Player()
     env = MultiSnakeEnv(game)
     aec_env = parallel_to_aec(env)
@@ -44,4 +54,3 @@ def test_profile_performance():
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('cumtime')
     stats.print_stats()
-
