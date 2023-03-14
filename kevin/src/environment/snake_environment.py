@@ -46,7 +46,7 @@ class MultiSnakeEnv(ParallelEnv):
                                     high=jnp.full([self.game.height(), self.game.width()],
 
                                                   #  Max value is the max value of a snake body cell
-                                                  2 * self.game.player_count() + 4,
+                                                  3 * self.game.player_count() + 5,
                                                   dtype=int),
                                     dtype=int),
             }

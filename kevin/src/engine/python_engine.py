@@ -132,8 +132,9 @@ class PythonStandard4Player(SnakeEngine):
 
             #  Snake names are always of the form snake_i
             num = int(name[6:])
-            head = 2 * num + 3
-            body = 2 * num + 4
+            head = 3 * num + 3
+            body = 3 * num + 4
+            tail = 3 * num + 5
 
             self.snakes_array[num] = {
                 "health": snake.health,
@@ -144,11 +145,17 @@ class PythonStandard4Player(SnakeEngine):
                 #  This snake is dead
                 continue
 
+            #  Tail
+            for x, y in snake.body[-1:]:
+                board = board.at[x, y].set(tail)
+
+            #  Body
+            for x, y in snake.body[1:-1]:
+                board = board.at[x, y].set(body)
+
+            #  Head
             for x, y in snake.body[:1]:
                 board = board.at[x, y].set(head)
-
-            for x, y in snake.body[1:]:
-                board = board.at[x, y].set(body)
 
         return board
 
@@ -184,7 +191,7 @@ class PythonStandard4Player(SnakeEngine):
         eaten_food: list[tuple[int, int]] = []
 
         #  Apply move
-        for id, snake in self.snakes.items():
+        for name, snake in self.snakes.items():
 
             # Dead snakes don't move
             if len(snake.body) == 0:
@@ -192,7 +199,7 @@ class PythonStandard4Player(SnakeEngine):
 
             #  Move the head and tail
             old_head = snake.body[0]
-            snake.body.insert(0, move_to_pt(old_head, self.pending_moves[id]))
+            snake.body.insert(0, move_to_pt(old_head, self.pending_moves[name]))
             snake.body.pop()
 
             head = snake.body[0]
@@ -208,7 +215,7 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Check elimination conditions
         eliminated: set = set()
-        for id, snake in self.snakes.items():
+        for name, snake in self.snakes.items():
 
             if len(snake.body) < 1:
                 #  Snake already eliminated
@@ -219,33 +226,33 @@ class PythonStandard4Player(SnakeEngine):
 
             #  Check out of bounds
             if x < 0 or y < 0:
-                eliminated.add(id)
+                eliminated.add(name)
 
             if x >= self.width or y >= self.height:
-                eliminated.add(id)
+                eliminated.add(name)
 
             #  Check out of health
             if snake.health <= 0:
-                eliminated.add(id)
+                eliminated.add(name)
 
             #  Check for collision with snake body (or self)
             for id2, snake2 in self.snakes.items():
                 if head in snake2.body[1:]:
-                    eliminated.add(id)
+                    eliminated.add(name)
 
             #  Check for head-to-head collisions
-            for id2, snake2 in self.snakes.items():
+            for name2, snake2 in self.snakes.items():
 
                 #  Dead snakes can't be collided with
                 if len(snake2.body) < 1:
                     continue
 
-                if id2 == id:
+                if name2 == name:
                     continue
 
                 if head == snake2[0]:
                     if len(snake.body) <= len(snake2.body):
-                        eliminated.add(id)
+                        eliminated.add(name)
 
         #  Remove eaten food
         for morsel in eaten_food:
@@ -253,8 +260,8 @@ class PythonStandard4Player(SnakeEngine):
                 self.food.remove(morsel)
 
         #  Eliminate snakes
-        for id in eliminated:
-            self.snakes[id].body = []
+        for name in eliminated:
+            self.snakes[name].body = []
 
     def _place_food(self):
         r"""
@@ -313,8 +320,8 @@ class PythonStandard4Player(SnakeEngine):
             return -1.
 
         #  Check if last snake alive
-        alive_snakes = filter(lambda id: not self._eliminated(id), [id for id, _ in self.snakes])
-        if snake_id in alive_snakes and len(tuple(alive_snakes)) == 1:
+        alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
+        if snake_id in alive_snakes and len(alive_snakes) == 1:
             return 1.
 
         return 0.

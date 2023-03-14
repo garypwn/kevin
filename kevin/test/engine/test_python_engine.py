@@ -51,7 +51,7 @@ def test_snake_heads_move(seed: int):
     game.step()
     print(game)
 
-    values = [0 for _ in range(3 + 2 * game.player_count)]
+    values = [0 for _ in range(5 + 3 * game.player_count)]
 
     for row in game.board.tolist():
         for i in row:
@@ -59,8 +59,8 @@ def test_snake_heads_move(seed: int):
 
     for i in range(game.player_count):
         # check there is 1 head and 1 body for each snake
-        assert values[2 * i + 3] == 1
-        assert values[2 * i + 4] == 1
+        assert values[3 * i + 3] == 1
+        assert values[3 * i + 4] == 1
 
 
 @pytest.mark.parametrize("seed", range(0, 200000, 10013))
@@ -106,6 +106,12 @@ def add_snake(game: PythonStandard4Player, snake: Snake):
     game.board = game.update_board()
 
 
+def add_food(game: PythonStandard4Player, pts: list[(int, int)]):
+    r"""Adds food to the board. Doesn't check if spaces are occupied."""
+    game.food = game.food + pts
+    game.board = game.update_board()
+
+
 def test_elimination_on_wall():
     game = generate_empty_board()
 
@@ -136,9 +142,6 @@ def test_elimination_on_single_body_collision():
     new_snake.body = [(5, 5), (5, 6), (6, 6), (6, 5), (6, 4)]
     add_snake(game, new_snake)
 
-    #  todo maybe it's time to add tails to the observation?
-    #  Think about it: there are states where you might know where the head is, But
-    #  it isn't obvious where the tail is
     print(game)
 
     game.submit_move("snake_0", 1)
@@ -245,7 +248,7 @@ def test_elimination_on_0_hp(seed: int = 0):
     new_snake = Snake()
     new_snake.id = "snake_0"
     new_snake.health = 1
-    new_snake.body = [(1, 1), (1,2)]
+    new_snake.body = [(1, 1), (1, 2)]
     add_snake(game, new_snake)
 
     print(game)
@@ -260,20 +263,71 @@ def test_elimination_on_0_hp(seed: int = 0):
 
 
 def test_reward_on_victory(seed: int = 0):
-    #  todo
-    pass
+    game = generate_empty_board()
+
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(1, 1), (1, 2)]
+    add_snake(game, new_snake)
+
+    print(game)
+
+    reward = game.get_reward("snake_0")
+    assert reward == 1.0
 
 
 def test_reward_on_defeat(seed: int = 0):
-    #  todo
-    pass
+    game = generate_empty_board()
+
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(1, 1), (1, 2)]
+    add_snake(game, new_snake)
+
+    print(game)
+
+    reward = game.get_reward("snake_1")  # Snake 1 is not alive
+    assert reward == -1.0
 
 
 def test_reward_on_neutral(seed: int = 0):
-    #  todo
-    pass
+    game = generate_empty_board()
+
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(1, 1), (1, 2)]
+    add_snake(game, new_snake)
+
+    new_snake = Snake()
+    new_snake.id = "snake_1"
+    new_snake.health = 100
+    new_snake.body = [(2, 2), (3, 2)]
+    add_snake(game, new_snake)
+
+    print(game)
+
+    assert game.get_reward("snake_1") == 0
+    assert game.get_reward("snake_0") == 0
 
 
-def food_grows_snakes(seed: int = 0):
-    #  todo
-    pass
+def test_food_grows_snakes(seed: int = 0):
+    game = generate_empty_board()
+
+    new_snake = Snake()
+    new_snake.id = "snake_0"
+    new_snake.health = 100
+    new_snake.body = [(5, 5), (5, 6)]
+    add_snake(game, new_snake)
+
+    add_food(game, [(5, 4)])
+
+    print(game)
+
+    game.submit_move("snake_0", 2)
+    game.step()
+    print(game)
+
+    assert len(game.snakes["snake_0"].body) == 3
