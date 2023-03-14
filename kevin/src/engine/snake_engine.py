@@ -1,4 +1,5 @@
 from abc import abstractmethod, ABC
+from typing import Final
 
 
 # noinspection PyMethodMayBeStatic
@@ -7,27 +8,16 @@ class SnakeEngine(ABC):
     Can be used for training or playing games.
     """
 
+    #  Must be set by constructor
+    height: Final[int]
+    width: Final[int]
+    player_count: Final[int]
+
     @abstractmethod
     def player_count(self) -> int:
         r"""
         How many players this board supports. This should be invariant.
         :return: The number of players supported by the game
-        """
-        pass
-
-    @abstractmethod
-    def height(self) -> int:
-        r"""
-        Invariant board height.
-        :return: The size of the board in the [y,] direction
-        """
-        pass
-
-    @abstractmethod
-    def width(self) -> int:
-        r"""
-        Invariant board width
-        :return: The size of the board in the [,x] direction
         """
         pass
 

@@ -1,7 +1,9 @@
+import functools
 from typing import Optional, Tuple, Dict, List
 
 from gymnasium import spaces
 from jax import numpy as jnp
+import numpy as np
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
@@ -25,35 +27,42 @@ class MultiSnakeEnv(ParallelEnv):
     def __init__(self, eng: SnakeEngine):
         self.game = eng
 
-        self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count())]
+        self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count)]
+
+        #  For now we train with max players on a board.
+        #  todo train with varying number of agents?
+        self.agents = ["snake_" + str(r) for r in range(eng.player_count)]
+
         self.action_spaces = {agent: spaces.Discrete(4) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
 
+    @functools.lru_cache(maxsize=None)
     def observation_space(self, agent) -> spaces.Space:
         return spaces.Dict(
             {
                 "snakes": spaces.Tuple([spaces.Dict(
                     {
-                        "health": spaces.Box(0, 100, dtype=int),
+                        "health": spaces.Box(0, 100, dtype=jnp.int16),
                         "you": spaces.Discrete(2)
                     })
-                    for _ in range(self.game.player_count())]),  # Number of snakes
+                    for _ in range(self.game.player_count)]),  # Number of snakes
 
-                "turn": spaces.Box(low=0, dtype=int),
+                "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),
 
                 #  Board dimensions
-                "board": spaces.Box(low=jnp.zeros([self.game.height(), self.game.width()], dtype=int),
-                                    high=jnp.full([self.game.height(), self.game.width()],
+                "board": spaces.Box(low=np.zeros([self.game.width, self.game.height], dtype=int),
+                                    high=np.full([self.game.width, self.game.height],
 
-                                                  #  Max value is the max value of a snake body cell
-                                                  3 * self.game.player_count() + 5,
-                                                  dtype=int),
-                                    dtype=int),
+                                                 #  Max value is the max value of a snake body cell
+                                                 3 * self.game.player_count + 5,
+                                                 dtype=int),
+                                    shape=[self.game.width, self.game.height],
+                                    dtype=jnp.int16),
             }
         )
 
     def reset(self, seed: Optional[int] = None, return_info: bool = False, options: Optional[dict] = None) -> ObsDict:
-        super().reset(seed=seed)
+
         if seed:
             self.game.seed(seed)
 
@@ -74,7 +83,7 @@ class MultiSnakeEnv(ParallelEnv):
     def step(self, actions: ActionDict) -> Tuple[
         ObsDict, Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, dict]
     ]:
-        for agent, action in actions:
+        for agent, action in actions.items():
             self.game.submit_move(agent, action)
 
         self.game.step()
@@ -84,6 +93,14 @@ class MultiSnakeEnv(ParallelEnv):
         terminations = {agent: self.game.get_terminated(agent) for agent in self.agents}
         truncations = {agent: self.game.get_truncated(agent) for agent in self.agents}
         infos = {agent: self.game.get_info(agent) for agent in self.agents}
+
+        # Remove terminated or truncated agents? This is not well-defined by spec
+        for agent in self.agents:
+            if terminations[agent]:
+                self.agents.remove(agent)
+                continue
+            if truncations[agent]:
+                self.agents.remove(agent)
 
         return observations, rewards, terminations, truncations, infos
 
