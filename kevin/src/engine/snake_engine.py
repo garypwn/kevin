@@ -96,6 +96,7 @@ class SnakeEngine(ABC):
     def reset(self) -> None:
         r"""
         Initialize a new board. Note: this must be deterministic if used for training!
+        This will always be called when the environment is constructed.
         :return: None
         """
         pass

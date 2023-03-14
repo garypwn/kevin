@@ -24,14 +24,13 @@ class MultiSnakeEnv(ParallelEnv):
 
     game: SnakeEngine
 
+    metadata = {"render_modes": [], "name": "battlesnake_v0"}
+
     def __init__(self, eng: SnakeEngine):
         self.game = eng
 
         self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count)]
-
-        #  For now we train with max players on a board.
-        #  todo train with varying number of agents?
-        self.agents = ["snake_" + str(r) for r in range(eng.player_count)]
+        self.reset()
 
         self.action_spaces = {agent: spaces.Discrete(4) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
@@ -63,10 +62,14 @@ class MultiSnakeEnv(ParallelEnv):
 
     def reset(self, seed: Optional[int] = None, return_info: bool = False, options: Optional[dict] = None) -> ObsDict:
 
-        if seed:
+        if seed is not None:
             self.game.seed(seed)
 
         self.game.reset()
+
+        #  For now, we train with max players on a board.
+        #  todo train with varying number of agents?
+        self.agents = ["snake_" + str(r) for r in range(self.game.player_count)]
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
         if not return_info:
@@ -95,11 +98,8 @@ class MultiSnakeEnv(ParallelEnv):
         infos = {agent: self.game.get_info(agent) for agent in self.agents}
 
         # Remove terminated or truncated agents? This is not well-defined by spec
-        for agent in self.agents:
-            if terminations[agent]:
-                self.agents.remove(agent)
-                continue
-            if truncations[agent]:
+        for agent in self.agents[:]:
+            if terminations[agent] or truncations[agent]:
                 self.agents.remove(agent)
 
         return observations, rewards, terminations, truncations, infos

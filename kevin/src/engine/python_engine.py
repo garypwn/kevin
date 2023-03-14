@@ -5,6 +5,7 @@ from typing import final, Final
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
+from line_profiler_pycharm import profile
 
 from kevin.src.engine.snake_engine import SnakeEngine
 
@@ -29,7 +30,7 @@ class PythonStandard4Player(SnakeEngine):
     width: Final[int] = 11
 
     #  State
-    turn_num: int
+    turn_num: int = 0
 
     rng_key: jax.Array | jrand.PRNGKeyArray
     rng_seed: int
@@ -95,8 +96,8 @@ class PythonStandard4Player(SnakeEngine):
         #  Initialize with a random seed
         if seed is None:
             seed = random.randrange(sys.maxsize)
-        self.seed(seed)
-        self.reset()
+
+        self.rng_seed = seed
 
     def __getitem__(self, item):
         if item == 0:
@@ -296,7 +297,12 @@ class PythonStandard4Player(SnakeEngine):
 
     def get_terminated(self, snake_id) -> bool:
 
-        #  A snake is dead if its body has size 0
+        # The last snake alive is terminated because the game has ended
+        alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
+        if snake_id in alive_snakes and len(alive_snakes) == 1:
+            return True
+
+        # Dead snakes are terminated
         return self._eliminated(snake_id)
 
     def get_truncated(self, snake_id) -> bool:
@@ -329,6 +335,7 @@ class PythonStandard4Player(SnakeEngine):
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
 
+    @profile
     def step(self) -> None:
         self._move_snakes()
         self._place_food()
@@ -349,10 +356,11 @@ class PythonStandard4Player(SnakeEngine):
         }] * self.player_count
         for i in range(self.player_count):
             name = "snake_" + str(i)
-            self.snakes[name] = Snake()
-            self.snakes[name].id = name
-            self.snakes[name].health = 100
-            self.snakes[name].body = []
+            new_snake = Snake()
+            new_snake.id = name
+            new_snake.health = 100
+            new_snake.body = []
+            self.snakes[name] = new_snake
             self.pending_moves[name] = 0
 
         self.food = []

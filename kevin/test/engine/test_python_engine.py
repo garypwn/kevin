@@ -4,21 +4,27 @@ from kevin.src.engine.python_engine import PythonStandard4Player, Snake
 import jax.numpy as jnp
 
 
+def create_game(seed):
+    game = PythonStandard4Player(seed)
+    game.reset()
+    return game
+
+
 def test_print_game():
-    game = PythonStandard4Player(99)
+    game = create_game(99)
     print(game)  # Requires visual inspection
 
 
 @pytest.mark.parametrize("seed", range(0, 200000, 10007))
 def test_spawn_determinism(seed: int):
-    games = (PythonStandard4Player(seed), PythonStandard4Player(seed))
+    games = (create_game(seed), create_game(seed))
     print(games[0])
     assert jnp.array_equal(games[0].board, games[1].board)
 
 
 @pytest.mark.parametrize("seed", range(50000, 700000, 50023))
 def test_no_initial_food_in_corner(seed: int):
-    game = PythonStandard4Player(seed)
+    game = create_game(seed)
     print(game)
     for i in range(4):
         assert jnp.rot90(game.board, k=i)[0, 0] == 0
@@ -26,7 +32,7 @@ def test_no_initial_food_in_corner(seed: int):
 
 @pytest.mark.parametrize("seed", range(800000, 1700000, 77023))
 def test_count_initial_food_and_snakes(seed: int):
-    game = PythonStandard4Player(seed)
+    game = create_game(seed)
     print(game)
     food_count = 0
     snake_count = 0
@@ -43,7 +49,7 @@ def test_count_initial_food_and_snakes(seed: int):
 
 @pytest.mark.parametrize("seed", range(0, 200000, 10013))
 def test_snake_heads_move(seed: int):
-    game = PythonStandard4Player(seed)
+    game = create_game(seed)
     print(game)
     for name, move in zip(game.snakes, [0, 3, 1, 2]):
         game.submit_move(name, move)
@@ -65,7 +71,7 @@ def test_snake_heads_move(seed: int):
 
 @pytest.mark.parametrize("seed", range(0, 200000, 10013))
 def test_observations_have_unique_perspective(seed: int):
-    game = PythonStandard4Player(seed)
+    game = create_game(seed)
     for id, snake in game.snakes.items():
         obs = game.get_observation(id)
         yous = 0
@@ -78,7 +84,7 @@ def test_observations_have_unique_perspective(seed: int):
 
 @pytest.mark.parametrize("seed", range(0, 200000, 10013))
 def test_same_turn_observations_have_same_board(seed: int):
-    game = PythonStandard4Player(seed)
+    game = create_game(seed)
     board = None
     print(game)
     for id, snake in game.snakes.items():
@@ -89,11 +95,11 @@ def test_same_turn_observations_have_same_board(seed: int):
         board = obs["board"]
 
 
-def generate_empty_board() -> PythonStandard4Player:
+def generate_empty_board(seed: int = 0) -> PythonStandard4Player:
     r"""A board with snake_0 at (5,5)"""
-    game = PythonStandard4Player(0)
+    game = create_game(seed)
     game.food = []
-    for id, snake in game.snakes.items():
+    for _, snake in game.snakes.items():
         snake.body = []
 
     game.board = game.update_board()
@@ -331,3 +337,17 @@ def test_food_grows_snakes(seed: int = 0):
     print(game)
 
     assert len(game.snakes["snake_0"].body) == 3
+
+
+@pytest.mark.parametrize("seed", range(0, 50000, 10013))
+def test_food_spawn_determinism(seed: int):
+
+    # two empty boards with the same seed
+    games = generate_empty_board(seed), generate_empty_board(seed)
+    for i in range(50):
+        for game in games:
+            game.step()
+
+        print(games[0])
+        print(games[1])
+        assert games[0].food == games[1].food

@@ -19,5 +19,8 @@ venv.bak/
 .Python
 build/
 
+# Profiler
+*.pclprof
+
 # IDE
 .idea
