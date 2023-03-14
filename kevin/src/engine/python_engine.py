@@ -1,5 +1,6 @@
 import random
 import sys
+from typing import final, Final
 
 import jax
 import jax.numpy as jnp
@@ -22,6 +23,12 @@ class PythonStandard4Player(SnakeEngine):
     r""" Attempts to emulate 4 player standard battlesnake logic in python
     """
 
+    #  Game options
+    player_count: Final[int] = 4  # todo support more than 4 players
+    height: Final[int] = 11
+    width: Final[int] = 11
+
+    #  State
     turn_num: int
 
     rng_key: jax.Array | jrand.PRNGKeyArray
@@ -74,7 +81,7 @@ class PythonStandard4Player(SnakeEngine):
         while True:
             point = jrand.randint(self._random(), shape=[2],
                                   minval=jnp.array([0, 0]),
-                                  maxval=jnp.array([self.width(), self.height()]))
+                                  maxval=jnp.array([self.width, self.height]))
             x, y = point[0], point[1]
             if not self._is_occupied((x, y)):
                 break
@@ -104,24 +111,16 @@ class PythonStandard4Player(SnakeEngine):
     def __str__(self):
         turn = "Turn {}.".format(self.turn_num)
         snakes = {"Snake {}: {}".format(i, snake["health"]) for i, snake in enumerate(self.snakes_array)}
+        jnp.set_printoptions(formatter={"int": lambda i: "{: >2}".format(i)})
         return "\n{}\n{}\n{}\n".format(turn, snakes, self.board)
 
-    def player_count(self) -> int:
-        return 4
-
-    def height(self) -> int:
-        return 11
-
-    def width(self) -> int:
-        return 11
-
-    def _update_board(self) -> jax.Array:
+    def update_board(self) -> jax.Array:
         """
         Update the board and snake list, as well as empty points
         """
 
         #  Empty the board
-        board = jnp.zeros([self.width(), self.height()], dtype=int)
+        board = jnp.zeros([self.width, self.height], dtype=int)
 
         for x, y in self.food:
             board = board.at[x, y].set(1)
@@ -222,7 +221,7 @@ class PythonStandard4Player(SnakeEngine):
             if x < 0 or y < 0:
                 eliminated.add(id)
 
-            if x >= self.width() or y >= self.height():
+            if x >= self.width or y >= self.height:
                 eliminated.add(id)
 
             #  Check out of health
@@ -326,7 +325,7 @@ class PythonStandard4Player(SnakeEngine):
     def step(self) -> None:
         self._move_snakes()
         self._place_food()
-        self.board = self._update_board()
+        self.board = self.update_board()
         self.turn_num += 1
 
     def reset(self) -> None:
@@ -340,8 +339,8 @@ class PythonStandard4Player(SnakeEngine):
         self.snakes_array = [{
             "health": 100,
             "you": 0
-        }] * self.player_count()
-        for i in range(self.player_count()):
+        }] * self.player_count
+        for i in range(self.player_count):
             name = "snake_" + str(i)
             self.snakes[name] = Snake()
             self.snakes[name].id = name
@@ -351,12 +350,12 @@ class PythonStandard4Player(SnakeEngine):
 
         self.food = []
         self.hazards = []
-        self.board = jnp.zeros([self.width(), self.height()], dtype=int)
+        self.board = jnp.zeros([self.width, self.height], dtype=int)
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.
-        xn, xd, xx = 1, (self.width() - 1) // 2, self.width() - 2
-        yn, yd, yx = 1, (self.height() - 1) // 2, self.height() - 2
+        xn, xd, xx = 1, (self.width - 1) // 2, self.width - 2
+        yn, yd, yx = 1, (self.height - 1) // 2, self.height - 2
 
         corners = [(xn, yn), (xn, yx), (xx, yn), (xx, yx)]
         cardinals = [(xn, yd), (xd, yn), (xd, yx), (xx, yd)]
@@ -370,7 +369,7 @@ class PythonStandard4Player(SnakeEngine):
         points = corners + cardinals
 
         # todo add support for more snakes. Currently goes up to 8.
-        if self.player_count() > 8:
+        if self.player_count > 8:
             raise NotImplementedError("Only supports up to 8 players.")
 
         for i, (_, snake) in enumerate(self.snakes.items()):
@@ -378,7 +377,7 @@ class PythonStandard4Player(SnakeEngine):
 
         #  Place starting food. BS default behaviour is to place a food intercardinal to each snake. Plus one center.
         #  But, do not place food in a corner or adjacent to the center square. todo except on small boards.
-        cx, cy = (self.width() - 1) // 2, (self.height() - 1) // 2
+        cx, cy = (self.width - 1) // 2, (self.height - 1) // 2
         for _, snake in self.snakes.items():
             hx, hy = snake.body[0]
             tentative = [
@@ -391,9 +390,9 @@ class PythonStandard4Player(SnakeEngine):
             for x, y in tentative.copy():
                 if (x, y) in [
                     (0, 0),
-                    (0, self.height()-1),
-                    (self.width()-1, 0),
-                    (self.width()-1, self.height()-1)
+                    (0, self.height - 1),
+                    (self.width - 1, 0),
+                    (self.width - 1, self.height - 1)
                 ]:
                     tentative.remove((x, y))
                     continue
@@ -404,7 +403,8 @@ class PythonStandard4Player(SnakeEngine):
 
                 #  Food must be further than snake from center on at least one axis
                 def bad(pn, sn, cn):
-                    return abs(pn - cn) <= abs(sn-cn)
+                    return abs(pn - cn) <= abs(sn - cn)
+
                 if bad(x, hx, cx) and bad(y, hy, cy):
                     tentative.remove((x, y))
 
@@ -419,7 +419,7 @@ class PythonStandard4Player(SnakeEngine):
         if not self._is_occupied((cx, cy)):
             self.food.append((cx, cy))
 
-        self.board = self._update_board()
+        self.board = self.update_board()
 
     def seed(self, seed) -> None:
         self.rng_seed = seed
