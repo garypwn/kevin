@@ -1,3 +1,5 @@
+import timeit
+
 import jax
 import pytest
 
@@ -353,7 +355,7 @@ def test_food_spawn_determinism(seed: int):
         assert games[0].food == games[1].food
 
 
-def test_jax_pr_board_fn():
+def test_jaxpr_board_fn():
     game = create_game(0)
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
@@ -406,9 +408,44 @@ def test_jitted_board_fn_correctness():
     updater = BoardUpdater(11, 11, 4)
     jitted_fn = jax.jit(updater.finite_board)
 
-    board_i = updater.infinite_board(snakes, food)
+    board_i = updater.infinite_board(snakes, food, game.board)
     print(board_i)
-    board_j = jitted_fn(snakes, food)
+    board_j = jitted_fn(snakes, food, game.board)
     print(board_j)
 
     assert jnp.array_equal(board_i, board_j)
+
+
+def obs_benchmark(game: PythonStandard4Player):
+    def run():
+        for i in range(500):
+            game.seed(i)
+            game.reset()
+            game.global_observation()
+
+    return timeit.timeit(stmt=run, number=1)
+
+
+def measure_obs_interpreter_performance():
+    updater = BoardUpdater(11, 11, 4, False)
+    game = PythonStandard4Player(0, updater)
+    time = obs_benchmark(game)
+    print("Interpreter: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))
+    return time / 500
+
+
+def measure_obs_jit_performance():
+    updater = BoardUpdater(11, 11, 4, True)
+    game = PythonStandard4Player(0, updater)
+    time = obs_benchmark(game)
+    print("JIT: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))
+    return time / 500
+
+
+def test_compare_obs_jit_performance():
+    print("\n\n")
+    rate_i = measure_obs_interpreter_performance()
+    rate_j = measure_obs_jit_performance()
+    percent_diff = 100 * rate_i / rate_j
+    print("\nThe JIT is {:.0f}% faster than the interpreter.".format(percent_diff))
+    assert rate_i > rate_j

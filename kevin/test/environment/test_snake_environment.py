@@ -44,9 +44,16 @@ def test_jitted_performance_benchmark():
 
 
 def test_profile_performance():
-    game = PythonStandard4Player()
+    updater = BoardUpdater(11, 11, 4, True)
+    game = PythonStandard4Player(updater=updater)
     env = MultiSnakeEnv(game)
     aec_env = parallel_to_aec(env)
+
+    #  Spool up the jit
+    for i in range(10):
+        game.seed(i)
+        game.reset()
+        game.global_observation()
 
     profiler = cProfile.Profile()
     profiler.enable()

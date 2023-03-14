@@ -51,7 +51,7 @@ class PythonStandard4Player(SnakeEngine):
     pending_moves: dict[str: int]
 
     #  Board updater fn
-    updater: Callable[[list[list[tuple[int, int]]], list[tuple[int, int]]], jax.Array]
+    updater: Callable[[list[list[tuple[int, int]]], list[tuple[int, int]], jax.Array], jax.Array]
 
     def _random(self) -> jax.Array | jrand.PRNGKeyArray:
         r"""
@@ -132,7 +132,6 @@ class PythonStandard4Player(SnakeEngine):
         """
 
         for name, snake in self.snakes.items():
-
             num = int(name[6:])
             self.snakes_array[num] = {
                 "health": snake.health,
@@ -140,7 +139,7 @@ class PythonStandard4Player(SnakeEngine):
             }
 
         bodies = list([snake.body for _, snake in self.snakes.items()])
-        self.board = self.updater(bodies, self.food)
+        self.board = self.updater(bodies, self.food, self.board)
 
     def _eliminated(self, snake_id: str) -> bool:
         r"""
@@ -434,7 +433,7 @@ class BoardUpdater:
     Also, hazards aren't supported right now.
     """
 
-    jitted_board: Callable[[list[list[tuple[int, int], list[tuple[int, int]]]]], jax.Array]
+    jitted_board: Callable[[list[list[tuple[int, int], list[tuple[int, int]]]], jax.Array], jax.Array]
     width: Final[int]
     height: Final[int]
     player_count: Final[int]
@@ -442,7 +441,7 @@ class BoardUpdater:
     max_food: Final[int]
     enable_hazards = False
 
-    def infinite_board(self, snake_bodies, food):
+    def infinite_board(self, snake_bodies, food, board):
         r"""Represents a board as an array"""
 
         #  Empty the board
@@ -476,7 +475,7 @@ class BoardUpdater:
 
         return board
 
-    def finite_board(self, snake_bodies, food):
+    def finite_board(self, snake_bodies, food, board):
         r"""
         Represents a board up to an array. Compatible with jax jit. Input must be within class attributes.
         """
@@ -524,15 +523,19 @@ class BoardUpdater:
         self.max_food = max_players + 11  # 16 on a standard board with 4 players
 
         if jit_enabled:
-            self.jitted_board = jax.jit(self.finite_board)
+            self.jitted_board = jax.jit(self.finite_board)  # is donating args safe here?
         else:
             self.jitted_board = self.infinite_board
 
-    def __call__(self, snake_bodies, food):
+    def __call__(self, snake_bodies, food, board):
+        r"""
+        Runs the board update function. Requires a list of snake bodies, list of food points,
+        as well as a buffer donation for the board.
+        """
         if len(food) > self.max_food:
-            return self.infinite_board(snake_bodies, food)
+            return self.infinite_board(snake_bodies, food, board)
         for body in snake_bodies:
             if len(body) > self.max_snake_len:
-                return self.infinite_board(snake_bodies, food)
+                return self.infinite_board(snake_bodies, food, board)
 
-        return self.jitted_board(snake_bodies, food)
+        return self.jitted_board(snake_bodies, food, board)
