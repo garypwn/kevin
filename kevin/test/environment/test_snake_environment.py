@@ -25,6 +25,18 @@ def test_pettingzoo_seed_test(seed: int):
     parallel_seed_test(construct_game, num_cycles=10, test_kept_state=True)
 
 
+def test_action_space():
+    game = PythonStandard4Player(0)
+    env = MultiSnakeEnv(game)
+    space = env.action_space("snake_0")
+    print(space)
+    for i in range(4):
+        assert i in space
+
+    assert -1 not in space
+    assert 4 not in space
+
+
 def test_performance_benchmark():
     # Requires manual inspection
     updater = BoardUpdater(11, 11, 4, False)
@@ -71,11 +83,11 @@ def test_flattening_wrapper():
     print("\n")
 
     print(env.observation_space("snake_0"))
+    print("\n")
     print(wrapped_env.observation_space("snake_0"))
 
     obs = wrapped_env.reset()
-    #print(obs)
-
+    print(obs)
 
     for agent in wrapped_env.agents:
         assert obs[agent] in wrapped_env.observation_space(agent)

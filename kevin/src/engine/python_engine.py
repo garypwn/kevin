@@ -44,7 +44,7 @@ class PythonStandard4Player(SnakeEngine):
     hazards: list[tuple[int, int]] = []
 
     #  For presenting in observations. Updated every step.
-    snakes_array: list[dict[str: int]] = []  # For observations
+    snakes_array: list[list[int, int]] = []  # For observations
     board: jax.Array
 
     #  Submitted moves
@@ -122,7 +122,7 @@ class PythonStandard4Player(SnakeEngine):
 
     def __str__(self):
         turn = "Turn {}.".format(self.turn_num)
-        snakes = {"Snake {}: {}".format(i, snake["health"]) for i, snake in enumerate(self.snakes_array)}
+        snakes = {"Snake {}: {}".format(i, snake[0]) for i, snake in enumerate(self.snakes_array)}
         jnp.set_printoptions(formatter={"int": lambda i: "{: >2}".format(i)})
         return "\n{}\n{}\n{}\n".format(turn, snakes, self.board)
 
@@ -133,13 +133,12 @@ class PythonStandard4Player(SnakeEngine):
 
         for name, snake in self.snakes.items():
             num = int(name[6:])
-            self.snakes_array[num] = {
-                "health": snake.health,
-                "you": 0,  # This changes if observed from a perspective
-            }
+            self.snakes_array[num] = [snake.health, 0]  # 0 becomes one if this is the observer
 
         bodies = list([snake.body for _, snake in self.snakes.items()])
         self.board = self.updater(bodies, self.food, self.board)
+
+        return self.board  # this is just so we can block until ready in tests
 
     def _eliminated(self, snake_id: str) -> bool:
         r"""
@@ -271,7 +270,7 @@ class PythonStandard4Player(SnakeEngine):
         #  Modify snake array so that this snake is "you"
         snake_copy = self.snakes_array.copy()
         entry_copy = snake_copy[num].copy()
-        entry_copy["you"] = 1
+        entry_copy[1] = 1
         snake_copy[num] = entry_copy
 
         return {"snakes": snake_copy, "turn": self.turn_num, "board": self.board}
@@ -330,10 +329,7 @@ class PythonStandard4Player(SnakeEngine):
         self.turn_num = 0
         self.snakes = {}
         self.pending_moves = {}
-        self.snakes_array = [{
-            "health": 100,
-            "you": 0
-        }] * self.player_count
+        self.snakes_array = [[100, 0]] * self.player_count
         for i in range(self.player_count):
             name = "snake_" + str(i)
             new_snake = Snake()

@@ -112,7 +112,7 @@ def generate_empty_board(seed: int = 0) -> PythonStandard4Player:
 def add_snake(game: PythonStandard4Player, snake: Snake):
     r"""Adds a snake to the board. Doesn't check if spaces are occupied."""
     game.snakes[snake.id] = snake
-    game.board = game.update_board()
+    game.board = game.update_board().block_until_ready()
 
 
 def add_food(game: PythonStandard4Player, pts: list[(int, int)]):

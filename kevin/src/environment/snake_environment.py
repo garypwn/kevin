@@ -43,11 +43,11 @@ class MultiSnakeEnv(ParallelEnv):
     def observation_space(self, agent) -> spaces.Space:
         return spaces.Dict(
             {
-                "snakes": spaces.Tuple([spaces.Dict(
-                    {
-                        "health": spaces.Box(0, 100, dtype=jnp.int16),
-                        "you": spaces.Box(0, 1, dtype=jnp.int16),
-                    })
+                "snakes": spaces.Tuple([spaces.Tuple(
+                    [
+                        spaces.Box(0, 100, dtype=jnp.int16),
+                        spaces.Box(0, 1, dtype=jnp.int16),
+                    ])
                     for _ in range(self.game.player_count)]),  # Number of snakes
 
                 "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
@@ -114,20 +114,6 @@ class MultiSnakeEnv(ParallelEnv):
     def state(self) -> jnp.ndarray:
         return self.game.global_observation()["board"]  # Not very useful
 
-    def gym_environment(self):
-        r"""
-        Coax (and other RL libraries) often take a gym environment to validate action and observation spaces.
-        Since the spaces are the same for each snake, we can create a dummy gym environment
-        to satisfy these requirements.
-
-        Note that this is not a realy gym environment and does not have any methods implemented.
-        """
-
-        env = DummyGymEnv()
-        env.action_space = self.action_space("snake_0")
-        env.observation_space = self.observation_space("snake_0")
-        return env
-
 
 class DummyGymEnv(Env):
     def step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
@@ -135,6 +121,18 @@ class DummyGymEnv(Env):
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
         raise NotImplementedError
+
+    def __init__(self, env):
+        r"""
+        Coax (and other RL libraries) often take a gym environment to validate action and observation spaces.
+        Since the spaces are the same for each snake, we can create a dummy gym environment
+        to satisfy these requirements.
+
+        Note that this is not a real gym environment and does not have any methods implemented.
+        """
+
+        self.action_space = env.action_space("snake_0")
+        self.observation_space = env.observation_space("snake_0")
 
     action_space: Space
     observation_space: Space

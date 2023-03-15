@@ -2,11 +2,11 @@ import os
 
 import coax
 import haiku
+import jax.nn
 import jax.numpy as jnp
-import supersuit
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonStandard4Player
-from kevin.src.environment.snake_environment import MultiSnakeEnv
+from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
 from kevin.src.environment.wrapper import FlatteningWrapper
 
 # set some env vars
@@ -19,24 +19,21 @@ name = 'standard_4p_ppo'
 updater = BoardUpdater(11, 11, 4)
 game = PythonStandard4Player(updater=updater)
 base_env = MultiSnakeEnv(game)
-gym_env = base_env.gym_environment()
 env = FlatteningWrapper(base_env)
+gym_env = DummyGymEnv(env)
 
 
-def func_pi(S, is_training):
-    lin = haiku.Linear(4, w_init=jnp.zeros)
-    return lin(S)
+def func_q(S, is_training):
+    seq = haiku.Sequential((
+        jnp.log1p,
+        haiku.Linear(8, w_init=jnp.zeros), jax.nn.relu,
+        haiku.Linear(gym_env.action_space.n, w_init=jnp.zeros)
+    ))
+    return seq(S)
 
 
-def func_v(S, is_training):
-    # Value function.
-
-    lin = haiku.Linear(4, w_init=jnp.zeros)
-    return lin(S)
-
-
-v = coax.V(func_v, gym_env)
-pi = coax.Policy(func_pi, gym_env)
+q = coax.Q(func_q, gym_env)
+pi = coax.BoltzmannPolicy(q, temperature=0.1)
 
 obs = env.reset()
 print(env.render())
