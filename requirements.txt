@@ -3,3 +3,6 @@ jax~=0.4.6
 Flask~=2.2.3
 gymnasium~=0.27.1
 pytest~=7.2.2
+numpy~=1.24.2
+coax~=0.1.13
+SuperSuit~=3.7.1

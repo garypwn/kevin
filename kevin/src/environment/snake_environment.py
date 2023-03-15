@@ -1,7 +1,8 @@
 import functools
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, SupportsFloat, Any
 
-from gymnasium import spaces
+from gymnasium import spaces, Env, Space
+from gymnasium.core import RenderFrame, ActType, ObsType
 from jax import numpy as jnp
 import numpy as np
 from pettingzoo import ParallelEnv
@@ -35,6 +36,9 @@ class MultiSnakeEnv(ParallelEnv):
         self.action_spaces = {agent: spaces.Discrete(4) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
 
+    def action_space(self, agent):
+        return self.action_spaces[agent]
+
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent) -> spaces.Space:
         return spaces.Dict(
@@ -42,11 +46,11 @@ class MultiSnakeEnv(ParallelEnv):
                 "snakes": spaces.Tuple([spaces.Dict(
                     {
                         "health": spaces.Box(0, 100, dtype=jnp.int16),
-                        "you": spaces.Discrete(2)
+                        "you": spaces.Box(0, 1, dtype=jnp.int16),
                     })
                     for _ in range(self.game.player_count)]),  # Number of snakes
 
-                "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),
+                "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
 
                 #  Board dimensions
                 "board": spaces.Box(low=np.zeros([self.game.width, self.game.height], dtype=int),
@@ -105,7 +109,32 @@ class MultiSnakeEnv(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def render(self) -> None | jnp.ndarray | str | List:
-        return None  # Not supported right now
+        return self.game.__str__()
 
     def state(self) -> jnp.ndarray:
         return self.game.global_observation()["board"]  # Not very useful
+
+    def gym_environment(self):
+        r"""
+        Coax (and other RL libraries) often take a gym environment to validate action and observation spaces.
+        Since the spaces are the same for each snake, we can create a dummy gym environment
+        to satisfy these requirements.
+
+        Note that this is not a realy gym environment and does not have any methods implemented.
+        """
+
+        env = DummyGymEnv()
+        env.action_space = self.action_space("snake_0")
+        env.observation_space = self.observation_space("snake_0")
+        return env
+
+
+class DummyGymEnv(Env):
+    def step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
+        raise NotImplementedError
+
+    def render(self) -> RenderFrame | list[RenderFrame] | None:
+        raise NotImplementedError
+
+    action_space: Space
+    observation_space: Space

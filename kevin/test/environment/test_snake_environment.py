@@ -7,6 +7,7 @@ from pettingzoo.utils import parallel_to_aec
 
 from kevin.src.engine.python_engine import PythonStandard4Player, BoardUpdater
 from kevin.src.environment.snake_environment import MultiSnakeEnv
+from kevin.src.environment.wrapper import FlatteningWrapper
 
 
 def test_pettingzoo_api_test():
@@ -61,3 +62,20 @@ def test_profile_performance():
     profiler.disable()
     stats = pstats.Stats(profiler).sort_stats('cumtime')
     stats.print_stats()
+
+
+def test_flattening_wrapper():
+    game = PythonStandard4Player()
+    env = MultiSnakeEnv(game)
+    wrapped_env = FlatteningWrapper(env)
+    print("\n")
+
+    print(env.observation_space("snake_0"))
+    print(wrapped_env.observation_space("snake_0"))
+
+    obs = wrapped_env.reset()
+    #print(obs)
+
+
+    for agent in wrapped_env.agents:
+        assert obs[agent] in wrapped_env.observation_space(agent)
