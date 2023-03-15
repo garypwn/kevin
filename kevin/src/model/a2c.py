@@ -27,36 +27,60 @@ gym_env = DummyGymEnv(env)
 
 def func_v(S, is_training):
     val = hk.Sequential((
-        jnp.log1p,
-        hk.Linear(32, w_init=jnp.zeros), jax.nn.relu,
-        hk.Linear(8, w_init=jnp.zeros), jax.nn.relu,
+        jnp.float32,
+        hk.Linear(256), jax.nn.relu,
+        hk.Linear(128), jax.nn.relu,
+        hk.Linear(64), jax.nn.relu,
+        hk.Linear(8), jax.nn.relu,
         hk.Linear(1, w_init=jnp.zeros), jnp.ravel
     ))
     return val(S)
 
 
+def func_q(S, is_training):
+    seq = hk.Sequential((
+        jnp.float32,
+        hk.Linear(256), jax.nn.relu,
+        hk.Linear(128), jax.nn.relu,
+        hk.Linear(64), jax.nn.relu,
+        hk.Linear(16), jax.nn.relu,
+        hk.Linear(gym_env.action_space.n, w_init=jnp.zeros)
+    ))
+    return seq(S)
+
+
 def func_pi(S, is_training):
     logits = hk.Sequential((
-        jnp.log1p,
-        hk.Linear(32), jax.nn.relu,
-        hk.Linear(8), jax.nn.relu,
+        jnp.float32,
+        hk.Linear(256), jax.nn.relu,
+        hk.Linear(128), jax.nn.relu,
+        hk.Linear(64), jax.nn.relu,
+        hk.Linear(16), jax.nn.relu,
         hk.Linear(gym_env.action_space.n, w_init=jnp.zeros)
     ))
     return {'logits': logits(S)}
 
 
 # Optimizers
-optimizer_v = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+#  optimizer_v = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
 optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0005))
 
-v = coax.V(func_v, gym_env)
+#  v = coax.V(func_v, gym_env)
+q = coax.Q(func_q, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=4, gamma=0.86) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=30, gamma=0.9) for agent in env.possible_agents}
+
+# Regularizer
+pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.007)
+
 # Updaters
-vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
-simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_v)
+vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
+# simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_v)
+sarsa = coax.td_learning.Sarsa(q, loss_function=huber, optimizer=optimizer_q)
+
 
 # Train
 for i in range(1000000):
@@ -96,7 +120,7 @@ for i in range(1000000):
         for _, tracer in tracers.items():
             while tracer:
                 transition_batch = tracer.pop()
-                metrics_v, td_error = simple_td.update(transition_batch, return_td_error=True)
+                metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
                 metrics_pi = vanilla.update(transition_batch, td_error)
 
         if i % render_period == 0:

@@ -298,15 +298,19 @@ class PythonStandard4Player(SnakeEngine):
         :return:
         """
         if self._eliminated(snake_id):
-            return -4.  # Losing gives a static penalty
+            # return -4.  # Losing gives a static penalty
+            return -100.
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
         if snake_id in alive_snakes and len(alive_snakes) == 1:
-            return log(self.turn_num+1, 2) + 0.15*self.turn_num + 3  # Reward slowly grows the longer the game goes
+            # return log(self.turn_num+1, 2) + 0.15*self.turn_num + 3  # Reward slowly grows the longer the game goes
+            return 200.
 
         # Staying alive gives a small reward which tapers off as the game goes on
-        return 1.05 ** (-self.turn_num - 10) + 0.8 * 1.02 ** (-(self.turn_num - 3) ** 2)
+        # return 1.05 ** (-self.turn_num - 10) + 0.8 * 1.02 ** (-(self.turn_num - 3) ** 2)
+
+        return 0.01
 
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
