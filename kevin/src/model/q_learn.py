@@ -11,10 +11,10 @@ from kevin.src.environment.wrapper import FlatteningWrapper
 
 # set some env vars
 os.environ.setdefault('JAX_PLATFORM_NAME', 'gpu')  # tell JAX to use GPU
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.7'  # don't use all gpu mem
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.8'  # don't use all gpu mem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 
-name = 'standard_4p_ppo'
+name = 'standard_4p_qlearn'
 
 updater = BoardUpdater(11, 11, 4)
 game = PythonStandard4Player(updater=updater)

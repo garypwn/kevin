@@ -77,9 +77,10 @@ def test_observations_have_unique_perspective(seed: int):
     game = create_game(seed)
     for id, snake in game.snakes.items():
         obs = game.get_observation(id)
+        print(obs)
         yous = 0
         for obs_snake in obs["snakes"]:
-            if obs_snake["you"] == 1:
+            if obs_snake[1] == 1:
                 yous += 1
 
         assert yous == 1
