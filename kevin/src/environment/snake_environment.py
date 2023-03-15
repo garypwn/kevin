@@ -43,14 +43,10 @@ class MultiSnakeEnv(ParallelEnv):
     def observation_space(self, agent) -> spaces.Space:
         return spaces.Dict(
             {
-                "snakes": spaces.Tuple([spaces.Tuple(
-                    [
-                        spaces.Box(0, 100, dtype=jnp.int16),
-                        spaces.Box(0, 1, dtype=jnp.int16),
-                    ])
-                    for _ in range(self.game.player_count)]),  # Number of snakes
-
                 "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
+
+                "snakes": spaces.Tuple([spaces.Box(0, 100, dtype=jnp.int16)
+                                        for _ in range(self.game.player_count)]),  # Number of snakes
 
                 #  Board dimensions
                 "board": spaces.Box(low=np.zeros([self.game.width, self.game.height], dtype=int),

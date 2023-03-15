@@ -1,13 +1,11 @@
 import random
 import sys
 from math import sqrt, log
-from typing import final, Final, Callable
+from typing import Final, Callable
 
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
-from jax._src.lax.control_flow import fori_loop, cond
-from line_profiler_pycharm import profile
 
 from kevin.src.engine.snake_engine import SnakeEngine
 
@@ -44,8 +42,8 @@ class PythonStandard4Player(SnakeEngine):
     hazards: list[tuple[int, int]] = []
 
     #  For presenting in observations. Updated every step.
-    snakes_array: list[list[int, int]] = []  # For observations
-    board: jax.Array
+    snakes_array: list[int] = []  # For observations
+    boards: dict[str: jax.Array]
 
     #  Submitted moves
     pending_moves: dict[str: int]
@@ -110,35 +108,40 @@ class PythonStandard4Player(SnakeEngine):
         else:
             self.updater = updater
 
+        #  Initialize the boards as empty boards
+        self.boards = {"snake_{}".format(i): jnp.zeros([self.width, self.height], dtype=jnp.int16)
+                       for i in range(self.player_count)}
+
     def __getitem__(self, item):
         if item == 0:
             return self.snakes_array
         if item == 1:
             return self.turn_num
         if item == 2:
-            return self.board
+            return self.boards
 
         raise IndexError
 
     def __str__(self):
         turn = "Turn {}.".format(self.turn_num)
-        snakes = {"Snake {}: {}".format(i, snake[0]) for i, snake in enumerate(self.snakes_array)}
+        snakes = {"Snake {}: {}".format(i, snake) for i, snake in enumerate(self.snakes_array)}
         jnp.set_printoptions(formatter={"int": lambda i: "{: >2}".format(i)})
-        return "\n{}\n{}\n{}\n".format(turn, snakes, self.board)
+        return "\n{}\n{}\n{}\n".format(turn, snakes, self.boards["snake_0"])
 
-    def update_board(self) -> jax.Array:
+    def update_board(self) -> dict[str: jax.Array]:
         """
         Update the board and snake list, as well as empty points
         """
 
         for name, snake in self.snakes.items():
             num = int(name[6:])
-            self.snakes_array[num] = [snake.health, 0]  # 0 becomes one if this is the observer
+            self.snakes_array[num] = snake.health
 
         bodies = list([snake.body for _, snake in self.snakes.items()])
-        self.board = self.updater(bodies, self.food, self.board)
+        for i, (snake, _) in enumerate(self.boards.items()):
+            self.boards[snake] = self.updater(bodies[i:] + bodies[:i], self.food, self.boards[snake])
 
-        return self.board  # this is just so we can block until ready in tests
+        return self.boards  # this is just so we can block until ready in tests
 
     def _eliminated(self, snake_id: str) -> bool:
         r"""
@@ -265,15 +268,7 @@ class PythonStandard4Player(SnakeEngine):
             self.food.append(self._random_unoccupied_pt())
 
     def get_observation(self, snake_id: str) -> dict:
-        num = int(snake_id[6:])
-
-        #  Modify snake array so that this snake is "you"
-        snake_copy = self.snakes_array.copy()
-        entry_copy = snake_copy[num].copy()
-        entry_copy[1] = 1
-        snake_copy[num] = entry_copy
-
-        return {"snakes": snake_copy, "turn": self.turn_num, "board": self.board}
+        return {"turn": self.turn_num, "snakes": self.snakes_array, "board": self.boards[snake_id]}
 
     def get_terminated(self, snake_id) -> bool:
 
@@ -294,7 +289,7 @@ class PythonStandard4Player(SnakeEngine):
         return False
 
     def global_observation(self) -> dict:
-        return {"snakes": self.snakes_array, "turn": self.turn_num, "board": self.board}
+        return {"snakes": self.snakes_array, "turn": self.turn_num, "board": self.boards["snake_0"]}
 
     def get_reward(self, snake_id) -> float:
         r"""
@@ -303,7 +298,7 @@ class PythonStandard4Player(SnakeEngine):
         :return:
         """
         if self._eliminated(snake_id):
-            return -0.8  # Losing gives a static penalty
+            return -4.  # Losing gives a static penalty
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -330,7 +325,7 @@ class PythonStandard4Player(SnakeEngine):
         self.turn_num = 0
         self.snakes = {}
         self.pending_moves = {}
-        self.snakes_array = [[100, 0]] * self.player_count
+        self.snakes_array = [100] * self.player_count
         for i in range(self.player_count):
             name = "snake_" + str(i)
             new_snake = Snake()
@@ -342,7 +337,6 @@ class PythonStandard4Player(SnakeEngine):
 
         self.food = []
         self.hazards = []
-        self.board = jnp.zeros([self.width, self.height], dtype=int)
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.

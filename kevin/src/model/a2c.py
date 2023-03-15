@@ -5,7 +5,7 @@ import haiku as hk
 import jax.nn
 import jax.numpy as jnp
 import optax
-from coax.value_losses import mse
+from coax.value_losses import mse, huber
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonStandard4Player
 from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
@@ -46,17 +46,17 @@ def func_pi(S, is_training):
 
 
 # Optimizers
-optimizer_v = optax.chain(optax.apply_every(k=4), optax.adam(0.002))
-optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+optimizer_v = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0005))
 
 v = coax.V(func_v, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.95) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=4, gamma=0.86) for agent in env.possible_agents}
 # Updaters
 vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
-simple_td = coax.td_learning.SimpleTD(v, loss_function=mse, optimizer=optimizer_v)
+simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_v)
 
 # Train
 for i in range(1000000):
@@ -81,11 +81,15 @@ for i in range(1000000):
             else:
                 a_dict[agent] = pi(obs[agent])
 
+        live_agents = env.agents[:]
+
         obs_next, r_dict, terminations, truncations, _ = env.step(a_dict)
 
         # Trace rewards
-        for agent in env.agents:
-            tracers[agent].add(obs[agent], a_dict[agent], r_dict[agent], terminations[agent] or truncations[agent])
+        for agent in live_agents:
+            if i % render_period != 0:
+                tracers[agent].add(obs[agent], a_dict[agent], r_dict[agent], terminations[agent] or truncations[agent])
+
             cum_reward[agent] += r_dict[agent]
 
         # Update q-learning
