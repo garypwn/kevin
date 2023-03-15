@@ -28,8 +28,7 @@ gym_env = DummyGymEnv(env)
 def func_v(S, is_training):
     val = hk.Sequential((
         jnp.log1p,
-        hk.Linear(8, w_init=jnp.zeros), jax.nn.relu,
-        hk.Linear(8, w_init=jnp.zeros), jax.nn.relu,
+        hk.Linear(32, w_init=jnp.zeros), jax.nn.relu,
         hk.Linear(8, w_init=jnp.zeros), jax.nn.relu,
         hk.Linear(1, w_init=jnp.zeros), jnp.ravel
     ))
@@ -39,8 +38,7 @@ def func_v(S, is_training):
 def func_pi(S, is_training):
     logits = hk.Sequential((
         jnp.log1p,
-        hk.Linear(8), jax.nn.relu,
-        hk.Linear(8), jax.nn.relu,
+        hk.Linear(32), jax.nn.relu,
         hk.Linear(8), jax.nn.relu,
         hk.Linear(gym_env.action_space.n, w_init=jnp.zeros)
     ))
@@ -55,8 +53,7 @@ v = coax.V(func_v, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=1, gamma=0.9) for agent in env.possible_agents}
-
+tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.95) for agent in env.possible_agents}
 # Updaters
 vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
 simple_td = coax.td_learning.SimpleTD(v, loss_function=mse, optimizer=optimizer_v)
@@ -64,10 +61,13 @@ simple_td = coax.td_learning.SimpleTD(v, loss_function=mse, optimizer=optimizer_
 # Train
 for i in range(1000000):
 
-    # Episode
-    obs = env.reset()
+    render_period = 150
 
-    if i % 250 == 0:
+    # Episode
+    obs = env.reset(i)
+    cum_reward = {agent: 0. for agent in env.possible_agents}
+
+    if i % render_period == 0:
         print("===== Game {} =========================".format(i))
         print(env.render())
 
@@ -76,13 +76,17 @@ for i in range(1000000):
         # Submit actions and store for later
         a_dict = {}
         for agent in env.agents:
-            a_dict[agent] = pi(obs[agent])
+            if i % render_period == 0:
+                a_dict[agent] = pi.mode(obs[agent])
+            else:
+                a_dict[agent] = pi(obs[agent])
 
         obs_next, r_dict, terminations, truncations, _ = env.step(a_dict)
 
         # Trace rewards
         for agent in env.agents:
             tracers[agent].add(obs[agent], a_dict[agent], r_dict[agent], terminations[agent] or truncations[agent])
+            cum_reward[agent] += r_dict[agent]
 
         # Update q-learning
         for _, tracer in tracers.items():
@@ -91,6 +95,10 @@ for i in range(1000000):
                 metrics_v, td_error = simple_td.update(transition_batch, return_td_error=True)
                 metrics_pi = vanilla.update(transition_batch, td_error)
 
-        if i % 250 == 0:
+        if i % render_period == 0:
             print(env.render())
         obs = obs_next
+
+    if i % (render_period // 10) == 0:
+        s = {agent: "{:.2f}".format(reward) for agent, reward in cum_reward.items()}
+        print("\nEpisode {} cumulative rewards:\n{}".format(i, s))
