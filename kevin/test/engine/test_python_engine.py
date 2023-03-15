@@ -39,7 +39,7 @@ def test_count_initial_food_and_snakes(seed: int):
     print(game)
     food_count = 0
     snake_count = 0
-    for row in game.board.tolist():
+    for row in game.boards["snake_0"].tolist():
         for i in row:
             if i == 1:
                 food_count += 1
@@ -48,6 +48,24 @@ def test_count_initial_food_and_snakes(seed: int):
 
     assert food_count == 5
     assert snake_count == 4
+
+
+@pytest.mark.parametrize("seed", range(800000, 1000000, 77023))
+def test_count_initial_food_and_snakes_1player(seed: int):
+    game = create_game(seed)
+    game.reset({"single_player": True})
+    print(game)
+    food_count = 0
+    snake_count = 0
+    for row in game.boards["snake_0"].tolist():
+        for i in row:
+            if i == 1:
+                food_count += 1
+            if i != 0 and i != 1:
+                snake_count += 1
+
+    assert food_count == 5
+    assert snake_count == 1
 
 
 @pytest.mark.parametrize("seed", range(0, 200000, 20013))

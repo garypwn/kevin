@@ -65,7 +65,7 @@ class MultiSnakeEnv(ParallelEnv):
         if seed is not None:
             self.game.seed(seed)
 
-        self.game.reset()
+        self.game.reset(options)
 
         #  For now, we train with max players on a board.
         #  todo train with varying number of agents?

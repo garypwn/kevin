@@ -41,6 +41,8 @@ def func_q(S, is_training):
     seq = hk.Sequential((
         jnp.float32,
         hk.Linear(256), jax.nn.relu,
+        hk.Linear(256), jax.nn.relu,
+        hk.Linear(256), jax.nn.relu,
         hk.Linear(128), jax.nn.relu,
         hk.Linear(64), jax.nn.relu,
         hk.Linear(16), jax.nn.relu,
@@ -52,6 +54,8 @@ def func_q(S, is_training):
 def func_pi(S, is_training):
     logits = hk.Sequential((
         jnp.float32,
+        hk.Linear(256), jax.nn.relu,
+        hk.Linear(256), jax.nn.relu,
         hk.Linear(256), jax.nn.relu,
         hk.Linear(128), jax.nn.relu,
         hk.Linear(64), jax.nn.relu,
@@ -71,23 +75,74 @@ q = coax.Q(func_q, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=30, gamma=0.9) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=5, gamma=0.9) for agent in env.possible_agents}
+
+# We just need one buffer ...?
+buffer = coax.experience_replay.SimpleReplayBuffer(capacity=256)
 
 # Regularizer
-pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.007)
+pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.001)
 
 # Updaters
-vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
+vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
 # simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_v)
 sarsa = coax.td_learning.Sarsa(q, loss_function=huber, optimizer=optimizer_q)
 
 
-# Train
-for i in range(1000000):
+render_period = 150
 
-    render_period = 150
+for i in range(100000):
+    # Episode of single-player
+    obs = env.reset(i // 20, options={"single_player": True})
+    cum_reward = 0.
 
-    # Episode
+    if i % render_period == 0:
+        print("===== Game {} =========================".format(i))
+        print(env.render())
+
+    for _ in range(400):  # There's no way it goes past 400 steps... ?
+        if i % render_period == 0:
+            a = pi.mode(obs["snake_0"])
+        else:
+            a = pi(obs["snake_0"])
+
+        obs_next, r_dict, terminations, truncations, _ = env.step({"snake_0": a})
+
+        # Trace rewards
+        if i % render_period != 0:
+            tracers["snake_0"].add(obs["snake_0"], a, r_dict["snake_0"],
+                                   terminations["snake_0"] or truncations["snake_0"])
+
+        cum_reward += r_dict["snake_0"]
+
+        # Put transition in buffer
+        while tracers["snake_0"]:
+            transition_batch = tracers["snake_0"].pop()
+            buffer.add(transition_batch)
+
+        # Update
+        if len(buffer) == buffer.capacity:
+            for _ in range(4 * buffer.capacity // 32):
+                transition_batch = buffer.sample(batch_size=32)
+                metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
+                metrics_pi = vanilla.update(transition_batch, td_error)
+
+        if i % render_period == 0:
+            print(env.render())
+        obs = obs_next
+
+        if terminations["snake_0"] or truncations["snake_0"]:
+            break
+
+    if i % (render_period // 10) == 0:
+        print("\nEpisode {} cumulative rewards:\n{:.2f}".format(i, cum_reward))
+
+    if cum_reward > -99.5:
+        print("=====SINGLE PLAYER WIN! Moving on to multiplayer =======")
+        break
+
+for i in range(100000):
+    # Episode of multiplayer
     obs = env.reset(i)
     cum_reward = {agent: 0. for agent in env.possible_agents}
 
@@ -116,12 +171,17 @@ for i in range(1000000):
 
             cum_reward[agent] += r_dict[agent]
 
-        # Update q-learning
-        for _, tracer in tracers.items():
-            while tracer:
-                transition_batch = tracer.pop()
-                metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
-                metrics_pi = vanilla.update(transition_batch, td_error)
+            # Put transition in buffer
+            while tracers[agent]:
+                transition_batch = tracers[agent].pop()
+                buffer.add(transition_batch)
+
+            # Update
+            if len(buffer) == buffer.capacity:
+                for _ in range(4 * buffer.capacity // 32):
+                    transition_batch = buffer.sample(batch_size=32)
+                    metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
+                    metrics_pi = vanilla.update(transition_batch, td_error)
 
         if i % render_period == 0:
             print(env.render())

@@ -51,6 +51,9 @@ class PythonStandard4Player(SnakeEngine):
     #  Board updater fn
     updater: Callable[[list[list[tuple[int, int]]], list[tuple[int, int]], jax.Array], jax.Array]
 
+    #  If true, the final snake will not terminate automatically.
+    single_player_mode = False
+
     def _random(self) -> jax.Array | jrand.PRNGKeyArray:
         r"""
         Generates a prng subkey and updates the instance key.
@@ -275,6 +278,11 @@ class PythonStandard4Player(SnakeEngine):
         # The last snake alive is terminated because the game has ended
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
         if snake_id in alive_snakes and len(alive_snakes) == 1:
+
+            # Except if it's 1-player mode
+            if self.single_player_mode:
+                return False
+
             return True
 
         # Dead snakes are terminated
@@ -304,6 +312,11 @@ class PythonStandard4Player(SnakeEngine):
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
         if snake_id in alive_snakes and len(alive_snakes) == 1:
+
+            # If it's single player, return a neutral reward
+            if self.single_player_mode:
+                return 0.01
+
             # return log(self.turn_num+1, 2) + 0.15*self.turn_num + 3  # Reward slowly grows the longer the game goes
             return 200.
 
@@ -321,7 +334,12 @@ class PythonStandard4Player(SnakeEngine):
         self.update_board()
         self.turn_num += 1
 
-    def reset(self) -> None:
+    def reset(self, options: dict | None = None) -> None:
+
+        single_player = False
+
+        if options is not None:
+            single_player = options["single_player"]
 
         self.seed(self.rng_seed)  # Reset the prng
 
@@ -408,6 +426,15 @@ class PythonStandard4Player(SnakeEngine):
         # Place food in center
         if not self._is_occupied((cx, cy)):
             self.food.append((cx, cy))
+
+        if single_player:
+            # Now get rid of the other snakes if it's a single player board
+            for name, snake in self.snakes.items():
+                if name != "snake_0":
+                    snake.health = 0
+                    snake.body = []
+
+        self.single_player_mode = single_player
 
         self.update_board()
 

@@ -93,7 +93,7 @@ class SnakeEngine(ABC):
         pass
 
     @abstractmethod
-    def reset(self) -> None:
+    def reset(self, options: dict | None = None) -> None:
         r"""
         Initialize a new board. Note: this must be deterministic if used for training!
         This will always be called when the environment is constructed.
