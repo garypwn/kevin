@@ -16,7 +16,7 @@ os.environ.setdefault('JAX_PLATFORMS', 'gpu, cpu')  # tell JAX to use GPU
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.7'  # don't use all gpu mem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 
-name = 'standard_4p_a2c'
+name = 'standard_4p_ppo'
 
 updater = BoardUpdater(11, 11, 4)
 game = PythonStandard4Player(updater=updater)
@@ -35,13 +35,13 @@ def process_obs(x):
     conv = hk.Sequential((
         hk.Conv2D(24 + 24 * game.player_count, [3, 3]), jax.nn.relu,  # Adjacent objects
         hk.Conv2D(24 * game.player_count, [4, 4]),  # Snakes that can reach each other next turn
-        # hk.Conv2D(24 + 16 * game.player_count, [5, 5])(board),  # Objects that can be reached in 2 turns
+        hk.Conv2D(24 + 16 * game.player_count, [5, 5]),  # Objects that can be reached in 2 turns
         hk.Flatten()
     ))
 
     result = jnp.concatenate((turn, snakes, flat_board, conv(board)), 1)
 
-    mlp = hk.nets.MLP([512, 256, 64, 16])
+    mlp = hk.nets.MLP([512, 512, 256, 256, 128, 32, 8])
     return mlp(result)
 
 
@@ -80,10 +80,10 @@ pi = coax.Policy(func_pi, gym_env)
 pi_behavior = pi.copy()
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=1, gamma=0.9) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=6, gamma=0.9) for agent in env.possible_agents}
 
 # We just need one buffer ...?
-buffer = coax.experience_replay.SimpleReplayBuffer(capacity=256)
+buffer = coax.experience_replay.SimpleReplayBuffer(capacity=1024)
 
 # Regularizer
 pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.01)
@@ -92,16 +92,13 @@ pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.01)
 ppo_clip = coax.policy_objectives.PPOClip(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
 simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_q)
 
-render_period = 35
+render_period = 40
+checkpoint_period = 2500
 
 for i in range(10000000):
     # Episode of single-player
-    obs = env.reset(i // 40)
+    obs = env.reset(i // 15)
     cum_reward = {agent: 0. for agent in env.possible_agents}
-
-    if i % render_period == 0:
-        print("===== Game {} =========================".format(i))
-        print(env.render())
 
     while len(env.agents) > 0:
 
@@ -129,17 +126,48 @@ for i in range(10000000):
         for _, tracer in tracers.items():
             while tracer:
                 transition_batch = tracer.pop()
-                # buffer.add(transition_batch)
+                buffer.add(transition_batch)
                 metrics_v, td_error = simple_td.update(transition_batch, return_td_error=True)
                 metrics_pi = ppo_clip.update(transition_batch, td_error)
 
-        pi_behavior.soft_update(pi, tau=0.1)
+        if len(buffer) == buffer.capacity:
+            for _ in range(16 * buffer.capacity // 64):
+                transition_batch = buffer.sample(batch_size=64)
+                metrics_v, td_error = simple_td.update(transition_batch, return_td_error=True)
+                metrics_pi = ppo_clip.update(transition_batch, td_error)
 
-        if i % render_period == 0:
-            print(env.render())
+            buffer.clear()
+            pi_behavior.soft_update(pi, tau=0.1)
+
         obs = obs_next
 
     if i % render_period == 0:
-        print("======Game {} end.=======================".format(i))
+        print("===== Game {} =========================".format(i))
+        print(env.render())
+        obs = env.reset(i // 15)
+        cum_reward = {agent: 0. for agent in env.possible_agents}
+
+        while len(env.agents) > 0:
+            # Get actions
+            actions = {}
+            for agent in env.agents:
+                actions[agent] = pi_behavior(obs[agent])
+
+            live_agents = env.agents[:]
+            obs_next, rewards, terminations, truncations, _ = env.step(actions)
+            for agent in live_agents:
+                cum_reward[agent] += rewards[agent]
+
+            print(env.render())
+            obs = obs_next
+
+        print("======GAME {} (mode) end.=======================".format(i))
         print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
         print("-----------------------------------------------")
+
+    if i % checkpoint_period == 1 and i != 0:
+        print("======Checkpoint {}============================".format(i))
+        print("-----------------------------------------------")
+        coax.utils.dump([pi, pi_behavior, v, tracers, buffer, pi_regularizer, simple_td, ppo_clip],
+                        "{}_checkpoint_{}.pkl.lz4".format(name, i))
+
