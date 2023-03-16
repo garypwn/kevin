@@ -13,64 +13,55 @@ from kevin.src.environment.wrapper import FlatteningWrapper
 
 # set some env vars
 os.environ.setdefault('JAX_PLATFORMS', 'gpu, cpu')  # tell JAX to use GPU
-os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.8'  # don't use all gpu mem
+os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.7'  # don't use all gpu mem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 
 name = 'standard_4p_a2c'
 
 updater = BoardUpdater(11, 11, 4)
 game = PythonStandard4Player(updater=updater)
-base_env = MultiSnakeEnv(game)
-env = FlatteningWrapper(base_env)
+env = MultiSnakeEnv(game)
 gym_env = DummyGymEnv(env)
 
 
-def func_v(S, is_training):
-    val = hk.Sequential((
-        jnp.float32,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(128), jax.nn.relu,
-        hk.Linear(64), jax.nn.relu,
-        hk.Linear(8), jax.nn.relu,
-        hk.Linear(1, w_init=jnp.zeros), jnp.ravel
+def process_obs(x):
+    board = jnp.float32(x["board"])
+    turn = jnp.float32(x["turn"])
+    snakes = jnp.float32(x["snakes"])
+
+    # Process the board
+    conv = hk.Sequential((
+        hk.Conv2D(24 + 24 * game.player_count, [3, 3]), jax.nn.relu,  # Adjacent objects
+        hk.Conv2D(24 * game.player_count, [4, 4]),         # Snakes that can reach each other next turn
+        # hk.Conv2D(24 + 16 * game.player_count, [5, 5])(board),  # Objects that can be reached in 2 turns
     ))
-    return val(S)
+
+    result = jnp.concatenate((turn, snakes, conv(board)), 1)
+
+    mlp = hk.nets.MLP([256, 64, 8])
+    return mlp(result)
 
 
 def func_q(S, is_training):
     seq = hk.Sequential((
-        jnp.float32,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(128), jax.nn.relu,
-        hk.Linear(64), jax.nn.relu,
-        hk.Linear(16), jax.nn.relu,
-        hk.Linear(gym_env.action_space.n, w_init=jnp.zeros)
+        process_obs,
+        hk.Linear(gym_env.action_space.n),
     ))
-    return seq(S)
+    return jnp.reshape(seq(S), [1, 4])
 
 
 def func_pi(S, is_training):
     logits = hk.Sequential((
-        jnp.float32,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(256), jax.nn.relu,
-        hk.Linear(128), jax.nn.relu,
-        hk.Linear(64), jax.nn.relu,
-        hk.Linear(16), jax.nn.relu,
-        hk.Linear(gym_env.action_space.n, w_init=jnp.zeros)
+        process_obs,
+        hk.Linear(gym_env.action_space.n),
     ))
-    return {'logits': logits(S)}
+    return {'logits': jnp.reshape(logits(S), [1, 4])}
 
 
 # Optimizers
-#  optimizer_v = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
 optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
 optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0005))
 
-#  v = coax.V(func_v, gym_env)
 q = coax.Q(func_q, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
@@ -85,7 +76,6 @@ pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.001)
 
 # Updaters
 vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
-# simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimizer_v)
 sarsa = coax.td_learning.Sarsa(q, loss_function=huber, optimizer=optimizer_q)
 
 

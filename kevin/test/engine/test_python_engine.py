@@ -403,9 +403,9 @@ def test_jitted_board_fn_correctness():
     updater = BoardUpdater(11, 11, 4)
     jitted_fn = jax.jit(updater.finite_board)
 
-    board_i = updater.infinite_board(snakes, food, game.board)
+    board_i = updater.infinite_board(snakes, food, game.boards["snake_0"])
     print(board_i)
-    board_j = jitted_fn(snakes, food, game.board)
+    board_j = jitted_fn(snakes, food, game.boards["snake_0"])
     print(board_j)
 
     assert jnp.array_equal(board_i, board_j)
@@ -444,3 +444,10 @@ def test_compare_obs_jit_performance():
     percent_diff = 100 * rate_i / rate_j
     print("\nThe JIT is {:.0f}% faster than the interpreter.".format(percent_diff))
     assert rate_i > rate_j
+
+
+def test_board_perspectives():
+    game = create_game(0)
+    game.snakes_array = [0, 1, 2, 3]
+    for name, _ in game.snakes.items():
+        print(game.get_observation(name))

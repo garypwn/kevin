@@ -5,4 +5,4 @@ gymnasium~=0.27.1
 pytest~=7.2.2
 numpy~=1.24.2
 coax~=0.1.13
-SuperSuit~=3.7.1
+optax~=0.1.4

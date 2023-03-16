@@ -141,7 +141,8 @@ class PythonStandard4Player(SnakeEngine):
             self.snakes_array[num] = snake.health
 
         bodies = list([snake.body for _, snake in self.snakes.items()])
-        for i, (snake, _) in enumerate(self.boards.items()):
+        for snake, _ in self.boards.items():
+            i = int(snake[6:])
             self.boards[snake] = self.updater(bodies[i:] + bodies[:i], self.food, self.boards[snake])
 
         return self.boards  # this is just so we can block until ready in tests
@@ -271,7 +272,9 @@ class PythonStandard4Player(SnakeEngine):
             self.food.append(self._random_unoccupied_pt())
 
     def get_observation(self, snake_id: str) -> dict:
-        return {"turn": self.turn_num, "snakes": self.snakes_array, "board": self.boards[snake_id]}
+        i = int(snake_id[6:])
+        ordered_snakes = self.snakes_array[i:] + self.snakes_array[:i]
+        return {"turn": self.turn_num, "snakes": ordered_snakes, "board": self.boards[snake_id]}
 
     def get_terminated(self, snake_id) -> bool:
 
