@@ -21,6 +21,10 @@ build/
 
 # Profiler
 *.pclprof
+*.prof
+
+# Checkpoints
+.checkpoint
 
 # IDE
 .idea

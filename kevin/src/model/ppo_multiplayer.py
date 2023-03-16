@@ -1,4 +1,6 @@
+import cProfile
 import os
+import pstats
 
 import coax
 import haiku as hk
@@ -32,16 +34,15 @@ def process_obs(x):
     flat_board = hk.Flatten()(board)
 
     # Process the board
-    conv = hk.Sequential((
-        hk.Conv2D(24 + 24 * game.player_count, [3, 3]), jax.nn.relu,  # Adjacent objects
-        hk.Conv2D(24 * game.player_count, [4, 4]),  # Snakes that can reach each other next turn
-        hk.Conv2D(24 + 16 * game.player_count, [5, 5]),  # Objects that can be reached in 2 turns
-        hk.Flatten()
-    ))
+    conv3 = hk.Conv2D(256, [3, 3])  # Adjacent objects
+    conv5 = hk.Sequential((conv3, jax.nn.relu, hk.Conv2D(256, [5, 5])))
 
-    result = jnp.concatenate((turn, snakes, flat_board, conv(board)), 1)
+    conv3_flat = hk.Sequential((conv3, jax.nn.relu, hk.Flatten()))(board)
+    conv5_flat = hk.Sequential((conv5, jax.nn.relu, hk.Flatten()))(board)
 
-    mlp = hk.nets.MLP([512, 512, 256, 256, 128, 32, 8])
+    result = jnp.concatenate((turn, snakes, flat_board, conv3_flat, conv5_flat), 1)
+
+    mlp = hk.nets.MLP([1024, 1024, 512, 256, 128, 32, 8])
     return mlp(result)
 
 
@@ -95,7 +96,16 @@ simple_td = coax.td_learning.SimpleTD(v, loss_function=huber, optimizer=optimize
 render_period = 40
 checkpoint_period = 2500
 
+profiler = cProfile.Profile()
 for i in range(10000000):
+
+    if i == 50:
+        profiler.enable()
+
+    if i == 300:
+        profiler.disable()
+        profiler.dump_stats("ppo_profile.prof")
+
     # Episode of single-player
     obs = env.reset(i // 15)
     cum_reward = {agent: 0. for agent in env.possible_agents}
@@ -151,7 +161,7 @@ for i in range(10000000):
             # Get actions
             actions = {}
             for agent in env.agents:
-                actions[agent] = pi_behavior(obs[agent])
+                actions[agent] = pi_behavior.mode(obs[agent])
 
             live_agents = env.agents[:]
             obs_next, rewards, terminations, truncations, _ = env.step(actions)
@@ -165,9 +175,9 @@ for i in range(10000000):
         print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
         print("-----------------------------------------------")
 
-    if i % checkpoint_period == 1 and i != 0:
+    if i % checkpoint_period == 0 and i != 0:
         print("======Checkpoint {}============================".format(i))
         print("-----------------------------------------------")
         coax.utils.dump([pi, pi_behavior, v, tracers, buffer, pi_regularizer, simple_td, ppo_clip],
-                        "{}_checkpoint_{}.pkl.lz4".format(name, i))
+                        ".checkpoint/{}_checkpoint_{}.pkl.lz4".format(name, i))
 

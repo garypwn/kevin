@@ -351,11 +351,24 @@ def test_food_spawn_determinism(seed: int):
 
 
 def test_jaxpr_board_fn():
-    game = create_game(0)
+    updater = BoardUpdater(11, 11, 4)
+    game = PythonStandard4Player(updater=updater)
+    game.reset()
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
+    print(jax.make_jaxpr(updater.finite_board)(snakes, food, game.boards["snake_0"]))
+
+
+def test_board_fn_pytree():
     updater = BoardUpdater(11, 11, 4)
-    print(jax.make_jaxpr(updater.finite_board)(snakes, food))
+    game = PythonStandard4Player(updater=updater)
+    game.reset()
+    food = game.food
+    snakes = list([snake.body for _, snake in game.snakes.items()])
+    board = game.boards["snake_0"]
+    print("\nFood pytree:", jax.tree_util.tree_structure(food))
+    print("\nSnake pytree:", jax.tree_util.tree_structure(snakes))
+    print("\nBoard pytree:", jax.tree_util.tree_structure(board))
 
 
 def test_board_fn_correctness():

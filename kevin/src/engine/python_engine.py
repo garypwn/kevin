@@ -358,7 +358,7 @@ class PythonStandard4Player(SnakeEngine):
         neutral_reward = 1. + 15. * 1.1 ** (- self.turn_num) + length_reward
 
         # Reward is usually 200, except early game.
-        victory_reward = 250. - 150. * 1.4 ** (- self.turn_num)
+        victory_reward = 250. - 200. * 1.05 ** (- self.turn_num)
 
         # Defeat gives a static penalty
         defeat_penalty = -100.
@@ -375,7 +375,7 @@ class PythonStandard4Player(SnakeEngine):
             if self.single_player_mode:
                 return neutral_reward
 
-            return victory_reward
+            return victory_reward + neutral_reward
 
         return neutral_reward
 
@@ -599,7 +599,7 @@ class BoardUpdater:
         self.max_food = max_players + 11  # 16 on a standard board with 4 players
 
         if jit_enabled:
-            self.jitted_board = jax.jit(self.finite_board)  # is donating args safe here?
+            self.jitted_board = jax.jit(self.finite_board, donate_argnums=2)  # is donating args safe here?
         else:
             self.jitted_board = self.infinite_board
 
