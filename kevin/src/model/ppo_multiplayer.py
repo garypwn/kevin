@@ -140,6 +140,6 @@ for i in range(10000000):
         obs = obs_next
 
     if i % render_period == 0:
-        print("\n\n======Game {} end.=======================")
-        print("Rewards: {}".format(cum_reward))
-        print("======Game {} end.=======================\n\n")
+        print("======Game {} end.=======================".format(i))
+        print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
+        print("-----------------------------------------------")

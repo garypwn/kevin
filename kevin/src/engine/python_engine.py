@@ -350,9 +350,22 @@ class PythonStandard4Player(SnakeEngine):
         :param snake_id:
         :return:
         """
+
+        # Being long gives a small reward
+        length_reward = 0.2 * len(self.snakes[snake_id].body)
+
+        # Neutral reward is based on surviving. Falls off late game.
+        neutral_reward = 1. + 15. * 1.1 ** (- self.turn_num) + length_reward
+
+        # Reward is usually 200, except early game.
+        victory_reward = 250. - 150. * 1.4 ** (- self.turn_num)
+
+        # Defeat gives a static penalty
+        defeat_penalty = -100.
+
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return -100.
+            return defeat_penalty
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -360,15 +373,11 @@ class PythonStandard4Player(SnakeEngine):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return 0.01
+                return neutral_reward
 
-            # return log(self.turn_num+1, 2) + 0.15*self.turn_num + 3  # Reward slowly grows the longer the game goes
-            return 200.
+            return victory_reward
 
-        # Staying alive gives a small reward which tapers off as the game goes on
-        # return 1.05 ** (-self.turn_num - 10) + 0.8 * 1.02 ** (-(self.turn_num - 3) ** 2)
-
-        return 0.01
+        return neutral_reward
 
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
