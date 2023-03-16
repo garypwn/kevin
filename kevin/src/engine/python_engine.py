@@ -6,6 +6,7 @@ from typing import Final, Callable
 import jax
 import jax.numpy as jnp
 import jax.random as jrand
+import numpy as np
 
 from kevin.src.engine.snake_engine import SnakeEngine
 
@@ -130,6 +131,47 @@ class PythonStandard4Player(SnakeEngine):
         snakes = {"Snake {}: {}".format(i, snake) for i, snake in enumerate(self.snakes_array)}
         jnp.set_printoptions(formatter={"int": lambda i: "{: >2}".format(i)})
         return "\n{}\n{}\n{}\n".format(turn, snakes, self.boards["snake_0"])
+
+    def fancy_str(self):
+        turn = "Turn {}.".format(self.turn_num)
+        snakes = {"Snake {}: {}".format(i, snake) for i, snake in enumerate(self.snakes_array)}
+        board = self.boards["snake_0"]
+        l = np.full([self.width, self.height], "__")
+        for i, row in enumerate(board):
+            for j, col in enumerate(row):
+                match board[i, j]:
+                    case 0:
+                        l[i, j] = "  "
+                    case 1:
+                        l[i, j] = "\N{tomato}"
+                    case 3:
+                        l[i, j] = "\N{large green square}"
+                    case 4:
+                        l[i, j] = "\N{large green circle}"
+                    case 5:
+                        l[i, j] = "\N{large green circle}"
+                    case 6:
+                        l[i, j] = "\N{large orange square}"
+                    case 7:
+                        l[i, j] = "\N{large orange circle}"
+                    case 8:
+                        l[i, j] = "\N{large orange circle}"
+                    case 9:
+                        l[i, j] = "\N{large yellow square}"
+                    case 10:
+                        l[i, j] = "\N{large yellow circle}"
+                    case 11:
+                        l[i, j] = "\N{large yellow circle}"
+                    case 12:
+                        l[i, j] = "\N{large blue square}"
+                    case 13:
+                        l[i, j] = "\N{large blue circle}"
+                    case 14:
+                        l[i, j] = "\N{large blue circle}"
+                    case _:
+                        l[i, j] = "  "
+
+        return "\n{}\n{}\n{}\n".format(turn, snakes, l)
 
     def update_board(self) -> dict[str: jax.Array]:
         """
@@ -274,7 +316,7 @@ class PythonStandard4Player(SnakeEngine):
     def get_observation(self, snake_id: str) -> dict:
         i = int(snake_id[6:])
         ordered_snakes = self.snakes_array[i:] + self.snakes_array[:i]
-        return {"turn": self.turn_num, "snakes": ordered_snakes, "board": self.boards[snake_id]}
+        return {"turn": self.turn_num, "snakes": jnp.array(ordered_snakes), "board": self.boards[snake_id]}
 
     def get_terminated(self, snake_id) -> bool:
 

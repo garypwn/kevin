@@ -34,6 +34,7 @@ def process_obs(x):
         hk.Conv2D(24 + 24 * game.player_count, [3, 3]), jax.nn.relu,  # Adjacent objects
         hk.Conv2D(24 * game.player_count, [4, 4]),         # Snakes that can reach each other next turn
         # hk.Conv2D(24 + 16 * game.player_count, [5, 5])(board),  # Objects that can be reached in 2 turns
+        hk.Flatten()
     ))
 
     result = jnp.concatenate((turn, snakes, conv(board)), 1)
@@ -47,7 +48,7 @@ def func_q(S, is_training):
         process_obs,
         hk.Linear(gym_env.action_space.n),
     ))
-    return jnp.reshape(seq(S), [1, 4])
+    return seq(S)
 
 
 def func_pi(S, is_training):
@@ -55,7 +56,7 @@ def func_pi(S, is_training):
         process_obs,
         hk.Linear(gym_env.action_space.n),
     ))
-    return {'logits': jnp.reshape(logits(S), [1, 4])}
+    return {'logits': logits(S)}
 
 
 # Optimizers
@@ -66,16 +67,16 @@ q = coax.Q(func_q, gym_env)
 pi = coax.Policy(func_pi, gym_env)
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=5, gamma=0.9) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=1, gamma=0.9) for agent in env.possible_agents}
 
 # We just need one buffer ...?
 buffer = coax.experience_replay.SimpleReplayBuffer(capacity=256)
 
 # Regularizer
-pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.001)
+pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.04)
 
 # Updaters
-vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi)
+vanilla = coax.policy_objectives.VanillaPG(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
 sarsa = coax.td_learning.Sarsa(q, loss_function=huber, optimizer=optimizer_q)
 
 
@@ -105,17 +106,12 @@ for i in range(100000):
 
         cum_reward += r_dict["snake_0"]
 
-        # Put transition in buffer
+        # Update
         while tracers["snake_0"]:
             transition_batch = tracers["snake_0"].pop()
-            buffer.add(transition_batch)
-
-        # Update
-        if len(buffer) == buffer.capacity:
-            for _ in range(4 * buffer.capacity // 32):
-                transition_batch = buffer.sample(batch_size=32)
-                metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
-                metrics_pi = vanilla.update(transition_batch, td_error)
+            # buffer.add(transition_batch)
+            metrics_v, td_error = sarsa.update(transition_batch, return_td_error=True)
+            metrics_pi = vanilla.update(transition_batch, td_error)
 
         if i % render_period == 0:
             print(env.render())

@@ -30,6 +30,10 @@ class SnakeEngine(ABC):
         """
         pass
 
+    @abstractmethod
+    def fancy_str(self):
+        pass
+
     def get_reward(self, snake_id) -> float:
         r"""
         The reward function. Since we don't actually know the reward for a given move, this can just

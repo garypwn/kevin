@@ -332,7 +332,7 @@ def test_food_grows_snakes(seed: int = 0):
 
     game.submit_move("snake_0", 2)
     game.step()
-    print(game)
+    print(game.fancy_str())
 
     assert len(game.snakes["snake_0"].body) == 3
 

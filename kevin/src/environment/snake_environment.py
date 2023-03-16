@@ -24,6 +24,7 @@ class MultiSnakeEnv(ParallelEnv):
     """
 
     game: SnakeEngine
+    fancy_render = False
 
     metadata = {"render_modes": [], "name": "battlesnake_v0"}
 
@@ -45,8 +46,8 @@ class MultiSnakeEnv(ParallelEnv):
             {
                 "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
 
-                "snakes": spaces.Tuple([spaces.Box(0, 100, dtype=jnp.int16)
-                                        for _ in range(self.game.player_count)]),  # Number of snakes
+                "snakes": spaces.Box(low=np.zeros(self.game.player_count),
+                                     high=np.full(self.game.player_count, 100), dtype=jnp.int16),
 
                 #  Board dimensions
                 "board": spaces.Box(low=np.zeros([self.game.width, self.game.height], dtype=int),
@@ -105,6 +106,8 @@ class MultiSnakeEnv(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def render(self) -> None | jnp.ndarray | str | List:
+        if self.fancy_render == True:
+            return self.game.fancy_str()
         return self.game.__str__()
 
     def state(self) -> jnp.ndarray:
