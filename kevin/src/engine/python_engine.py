@@ -134,7 +134,7 @@ class PythonStandard4Player(SnakeEngine):
 
     def fancy_str(self):
         turn = "Turn {}.".format(self.turn_num)
-        snakes = {"Snake {}: {}".format(i, snake) for i, snake in enumerate(self.snakes_array)}
+        snakes = {name: snake.health for name, snake in self.snakes.items()}
         board = self.boards["snake_0"]
         l = np.full([self.width, self.height], "__")
         for i, row in enumerate(board):
@@ -375,7 +375,7 @@ class PythonStandard4Player(SnakeEngine):
             if self.single_player_mode:
                 return neutral_reward
 
-            return victory_reward + neutral_reward
+            return neutral_reward  # + victory_reward
 
         return neutral_reward
 
