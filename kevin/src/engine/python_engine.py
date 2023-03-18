@@ -345,12 +345,14 @@ class PythonGameState(GameState):
 
         # Neutral reward is based on surviving. Falls off late game.
         neutral_reward = 1. + 15. * 1.1 ** (- self.turn_num) + length_reward
+        static_neutral_reward = 1.
 
         # Reward is usually 200, except early game.
         victory_reward = 250. - 200. * 1.05 ** (- self.turn_num)
+        static_victory_reward = 250.
 
         # Defeat gives a static penalty
-        defeat_penalty = -100.
+        defeat_penalty = -50.
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
@@ -362,11 +364,11 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return neutral_reward
+                return static_neutral_reward + length_reward
 
-            return neutral_reward  # + victory_reward
+            return static_neutral_reward + static_victory_reward
 
-        return neutral_reward
+        return static_neutral_reward + length_reward
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
         if options is not None and options.get("save"):

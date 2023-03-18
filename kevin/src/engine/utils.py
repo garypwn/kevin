@@ -74,7 +74,7 @@ def fancy_board(food_board: jax.Array, snake_boards: dict[str: jax.Array]):
         "snake_1": ["\N{Large blue square}", "\N{Large blue circle}"],
         "snake_2": ["\N{Large orange square}", "\N{Large orange circle}"],
         "snake_3": ["\N{Large purple square}", "\N{Large purple circle}"],
-        "food": ["\N{Cupcake}"]
+        "food": ["\N{Tomato}"]
     }
 
     # Food

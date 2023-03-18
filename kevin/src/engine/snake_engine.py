@@ -14,6 +14,8 @@ class GameState(ABC):
     height: Final[int]
     width: Final[int]
     player_count: Final[int]
+    turn_num: int
+    snakes = {}
 
     @abstractmethod
     def player_count(self) -> int:

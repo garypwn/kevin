@@ -103,7 +103,10 @@ class MultiSnakeEnv(ParallelEnv):
 
     def render(self) -> None | jnp.ndarray | str | List:
         if self.fancy_render:
-            return utils.fancy_board_from_game(self.game)
+            board = utils.fancy_board_from_game(self.game)
+            turn = self.game.turn_num
+            snakes = {name: snake.health for name, snake in self.game.snakes.items()}
+            return "\nTurn {}.\n{}\n{}\n".format(turn, snakes, board)
         return self.game.__str__()
 
     def state(self) -> jnp.ndarray:
