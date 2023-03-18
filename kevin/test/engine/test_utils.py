@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 
 import kevin.src.engine.utils as utils
+from kevin.src.engine.python_engine import PythonGameState
 
 
 def test_observation_from_empty():
@@ -85,3 +86,8 @@ def test_observation_from_example_board():
     assert len([snake for snake in obs["snakes"] if snake["you"] == 1]) == 1
 
     print(f"\n {obs['board']}")
+
+
+def test_fancy_print():
+    game = PythonGameState()
+    print(utils.fancy_board(game.food_board, game.snake_boards))

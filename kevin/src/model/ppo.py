@@ -12,7 +12,7 @@ from coax.value_losses import mse, huber
 from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
 from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
 from kevin.src.environment.wrapper import FlatteningWrapper
-from kevin.src.model.model import Model, process_obs, resnet
+from kevin.src.model.model import Model, simple_body
 
 # set some env vars
 os.environ.setdefault('JAX_PLATFORMS', 'gpu, cpu')  # tell JAX to use GPU
@@ -27,7 +27,7 @@ env = MultiSnakeEnv(game)
 env.fancy_render = True
 gym_env = DummyGymEnv(env)
 
-model = Model(resnet, gym_env.action_space)
+model = Model(simple_body, gym_env.action_space)
 
 
 # Optimizers

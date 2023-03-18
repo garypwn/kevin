@@ -80,8 +80,10 @@ def test_snake_heads_move(seed: int):
     moves = {"snake_{}".format(i) : i % 3 for i in range(4)}
     print(game.get_observation("snake_0")["boards"][0])
 
-    step2 = game.step(moves)
-    step3 = step2.step(moves)
+    op = {"save": True}
+
+    step2 = game.step(moves, op)
+    step3 = step2.step(moves, op)
     print({name: snake.body for name, snake in game.snakes.items()})
     print({name: snake.body for name, snake in step2.snakes.items()})
     print({name: snake.body for name, snake in step3.snakes.items()})
@@ -89,6 +91,21 @@ def test_snake_heads_move(seed: int):
     print(step3.snake_boards["snake_0"])
 
     obs = [g.get_observation("snake_0")["boards"][0] for g in (game, step2, step3)]
+    print(obs[0], "\n")
+    print(obs[1], "\n")
+    print(obs[2], "\n")
+
+    obs = [g.get_observation("snake_0")["boards"][1] for g in (game, step2, step3)]
+    print(obs[0], "\n")
+    print(obs[1], "\n")
+    print(obs[2], "\n")
+
+    obs = [g.get_observation("snake_0")["boards"][2] for g in (game, step2, step3)]
+    print(obs[0], "\n")
+    print(obs[1], "\n")
+    print(obs[2], "\n")
+
+    obs = [g.get_observation("snake_0")["boards"][3] for g in (game, step2, step3)]
     print(obs[0], "\n")
     print(obs[1], "\n")
     print(obs[2], "\n")

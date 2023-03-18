@@ -8,6 +8,7 @@ import numpy as np
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
+from kevin.src.engine import utils
 from kevin.src.engine.snake_engine import GameState
 
 
@@ -63,7 +64,7 @@ class MultiSnakeEnv(ParallelEnv):
         if seed is not None:
             self.game.seed(seed)
 
-        self.game.reset(options)
+        self.game = self.game.reset(options)
 
         #  For now, we train with max players on a board.
         #  todo train with varying number of agents?
@@ -85,7 +86,7 @@ class MultiSnakeEnv(ParallelEnv):
         ObsDict, Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, dict]
     ]:
 
-        self.game.step(actions)
+        self.game = self.game.step(actions)
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
         rewards = {agent: self.game.get_reward(agent) for agent in self.agents}
@@ -102,7 +103,7 @@ class MultiSnakeEnv(ParallelEnv):
 
     def render(self) -> None | jnp.ndarray | str | List:
         if self.fancy_render:
-            return self.game.fancy_str()
+            return utils.fancy_board_from_game(self.game)
         return self.game.__str__()
 
     def state(self) -> jnp.ndarray:

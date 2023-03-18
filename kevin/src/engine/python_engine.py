@@ -43,13 +43,14 @@ class PythonGameState(GameState):
     rng_seed: int
 
     snakes: dict[str: Snake]
+    dead_snakes: dict[str: Snake]
 
     food: list[tuple[int, int]]
     hazards: list[tuple[int, int]] = []
 
     #  Observations
-    snake_boards: dict[str: jax.Array] = {}
-    food_board: jax.Array = None
+    snake_boards: dict[str: jax.Array]
+    food_board: jax.Array | None
 
     def _is_occupied(self, pt: tuple[int, int]) -> bool:
         """
@@ -102,15 +103,21 @@ class PythonGameState(GameState):
         else:
             self.updater = updater
 
+        self.snake_boards = {}
+        self.food_board = None
+
         self._spawn_snakes_and_food()
 
-    def __copy__(self):
+    def full_copy(self):
+
         new = PythonGameState(self.rng_seed, self.updater)
         new.turn_num = self.turn_num
         new.rng_key = self.rng_key.copy()
         new.snakes = copy.deepcopy(self.snakes)
+        new.dead_snakes = copy.deepcopy(self.dead_snakes)
         new.food = copy.deepcopy(self.food)
         new.hazards = copy.deepcopy(self.hazards)
+
         return new
 
     def update_board(self) -> dict[str: jax.Array]:
@@ -233,6 +240,10 @@ class PythonGameState(GameState):
 
         #  Eliminate snakes
         for name in eliminated:
+
+            # Save the dead snake for later
+            cpy = copy.deepcopy(self.snakes[name])
+            self.dead_snakes[name] = cpy
             self.snakes[name].body = []
 
     def _place_food(self, rng):
@@ -257,9 +268,6 @@ class PythonGameState(GameState):
 
     def get_observation(self, snake_id: str) -> dict:
 
-        if self._eliminated(snake_id):
-            raise ValueError("Dead snakes cannot observe.")
-
         i = int(snake_id[6:])
         ordered_snakes = self.snakes_array[i:] + self.snakes_array[:i]
         nums = [n for n in range(self.player_count)]
@@ -268,7 +276,11 @@ class PythonGameState(GameState):
         # Boards should be in order with our snake as number 0
         ordered_snake_boards = [self.snake_boards["snake_{}".format(ordering[n])] for n in nums]
 
-        snake = self.snakes[snake_id]
+        if self._eliminated(snake_id):
+            snake = self.dead_snakes[snake_id]
+        else:
+            snake = self.snakes[snake_id]
+
         head = snake[0]
         x0, y0 = head
         x1, y1 = snake[1]
@@ -288,10 +300,11 @@ class PythonGameState(GameState):
                 raise ValueError
 
         walls = self.updater.walls_pov(head, d)
+        food = self.updater.snake_pov(head, d, self.food_board)
         povs = [self.updater.snake_pov(head, d, board)
                 for board in ordered_snake_boards]
 
-        boards = jnp.stack([povs[0], walls] + povs[1:], 0)
+        boards = jnp.stack([povs[0], walls, food] + povs[1:], 0)
         return {"turn": self.turn_num, "snakes": jnp.array(ordered_snakes), "boards": boards}
 
     def get_terminated(self, snake_id) -> bool:
@@ -355,8 +368,11 @@ class PythonGameState(GameState):
 
         return neutral_reward
 
-    def step(self, actions) -> PythonGameState:
-        cpy = self.__copy__()
+    def step(self, actions, options: dict | None = None) -> PythonGameState:
+        if options is not None and options.get("save"):
+            cpy = self.full_copy()
+        else:
+            cpy = self
         cpy._move_snakes(actions)
         cpy.rng_key, subkey = jrand.split(cpy.rng_key)
         cpy._place_food(subkey)
@@ -365,7 +381,11 @@ class PythonGameState(GameState):
         return cpy
 
     def reset(self, options: dict | None = None) -> PythonGameState:
-        cpy = self.__copy__()
+        if options is not None and options.get("save"):
+            cpy = self.full_copy()
+        else:
+            cpy = self
+
         cpy._spawn_snakes_and_food(options)
         return cpy
 
@@ -381,6 +401,7 @@ class PythonGameState(GameState):
         #  Reset all state
         self.turn_num = 0
         self.snakes = {}
+        self.dead_snakes = {}
         self.pending_moves = {}
         self.snakes_array = [100] * self.player_count
         for i in range(self.player_count):
