@@ -8,7 +8,7 @@ import numpy as np
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
-from kevin.src.engine.snake_engine import SnakeEngine
+from kevin.src.engine.snake_engine import GameState
 
 
 # noinspection SpellCheckingInspection
@@ -23,12 +23,12 @@ class MultiSnakeEnv(ParallelEnv):
 
     """
 
-    game: SnakeEngine
+    game: GameState
     fancy_render = False
 
     metadata = {"render_modes": [], "name": "battlesnake_v0"}
 
-    def __init__(self, eng: SnakeEngine):
+    def __init__(self, eng: GameState):
         self.game = eng
 
         self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count)]

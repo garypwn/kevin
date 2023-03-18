@@ -3,12 +3,12 @@ import timeit
 import jax
 import pytest
 
-from kevin.src.engine.python_engine import PythonStandard4Player, Snake, BoardUpdater
+from kevin.src.engine.python_engine import PythonGameState, Snake, BoardUpdater
 import jax.numpy as jnp
 
 
 def create_game(seed):
-    game = PythonStandard4Player(seed)
+    game = PythonGameState(seed)
     game.reset()
     return game
 
@@ -90,7 +90,7 @@ def test_snake_heads_move(seed: int):
         assert values[3 * i + 4] == 1
 
 
-def generate_empty_board(seed: int = 0) -> PythonStandard4Player:
+def generate_empty_board(seed: int = 0) -> PythonGameState:
     r"""A board with snake_0 at (5,5)"""
     game = create_game(seed)
     game.food = []
@@ -101,13 +101,13 @@ def generate_empty_board(seed: int = 0) -> PythonStandard4Player:
     return game
 
 
-def add_snake(game: PythonStandard4Player, snake: Snake):
+def add_snake(game: PythonGameState, snake: Snake):
     r"""Adds a snake to the board. Doesn't check if spaces are occupied."""
     game.snakes[snake.id] = snake
     board = game.update_board()["snake_0"].block_until_ready()
 
 
-def add_food(game: PythonStandard4Player, pts: list[(int, int)]):
+def add_food(game: PythonGameState, pts: list[(int, int)]):
     r"""Adds food to the board. Doesn't check if spaces are occupied."""
     game.food = game.food + pts
     game.board = game.update_board()
@@ -352,7 +352,7 @@ def test_food_spawn_determinism(seed: int):
 
 def test_jaxpr_board_fn():
     updater = BoardUpdater(11, 11, 4)
-    game = PythonStandard4Player(updater=updater)
+    game = PythonGameState(updater=updater)
     game.reset()
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
@@ -361,7 +361,7 @@ def test_jaxpr_board_fn():
 
 def test_board_fn_pytree():
     updater = BoardUpdater(11, 11, 4)
-    game = PythonStandard4Player(updater=updater)
+    game = PythonGameState(updater=updater)
     game.reset()
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
@@ -424,7 +424,7 @@ def test_jitted_board_fn_correctness():
     assert jnp.array_equal(board_i, board_j)
 
 
-def obs_benchmark(game: PythonStandard4Player):
+def obs_benchmark(game: PythonGameState):
     def run():
         for i in range(500):
             game.seed(i)
@@ -436,7 +436,7 @@ def obs_benchmark(game: PythonStandard4Player):
 
 def measure_obs_interpreter_performance():
     updater = BoardUpdater(11, 11, 4, False)
-    game = PythonStandard4Player(0, updater)
+    game = PythonGameState(0, updater)
     time = obs_benchmark(game)
     print("Interpreter: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))
     return time / 500
@@ -444,7 +444,7 @@ def measure_obs_interpreter_performance():
 
 def measure_obs_jit_performance():
     updater = BoardUpdater(11, 11, 4, True)
-    game = PythonStandard4Player(0, updater)
+    game = PythonGameState(0, updater)
     time = obs_benchmark(game)
     print("JIT: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))
     return time / 500

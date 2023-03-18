@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 import random
 import sys
-from math import sqrt, log
 from typing import Final, Callable
 
 import jax
@@ -8,7 +9,8 @@ import jax.numpy as jnp
 import jax.random as jrand
 import numpy as np
 
-from kevin.src.engine.snake_engine import SnakeEngine
+from kevin.src.engine.board_updater import BoardUpdater
+from kevin.src.engine.snake_engine import GameState
 
 
 class Snake:
@@ -21,14 +23,17 @@ class Snake:
     body: list[tuple[int, int]]
 
 
-class PythonStandard4Player(SnakeEngine):
-    r""" Attempts to emulate 4 player standard battlesnake logic in python
+class PythonGameState(GameState):
+    """ Attempts to emulate 4 player standard battlesnake logic in python
     """
 
     #  Game options
     player_count: Final[int] = 4  # todo support more than 4 players
     height: Final[int] = 11
     width: Final[int] = 11
+
+    #  Board updater fn
+    updater: Final[Callable[[list[list[tuple[int, int]]], list[tuple[int, int]], jax.Array], jax.Array]]
 
     #  State
     turn_num: int = 0
@@ -38,34 +43,11 @@ class PythonStandard4Player(SnakeEngine):
 
     snakes: dict[str: Snake]
 
-    #  Coords are in the shape (x, y)
     food: list[tuple[int, int]]
     hazards: list[tuple[int, int]] = []
 
-    #  For presenting in observations. Updated every step.
-    snakes_array: list[int] = []  # For observations
-    boards: dict[str: jax.Array]
-
-    #  Submitted moves
-    pending_moves: dict[str: int]
-
-    #  Board updater fn
-    updater: Callable[[list[list[tuple[int, int]]], list[tuple[int, int]], jax.Array], jax.Array]
-
-    #  If true, the final snake will not terminate automatically.
-    single_player_mode = False
-
-    def _random(self) -> jax.Array | jrand.PRNGKeyArray:
-        r"""
-        Generates a prng subkey and updates the instance key.
-        NEVER use another prng to preserve determinism.
-        :return: A new prng subkey
-        """
-        self.rng_key, subkey = jrand.split(self.rng_key)
-        return subkey
-
     def _is_occupied(self, pt: tuple[int, int]) -> bool:
-        r"""
+        """
         Checks if a point is occupied.
         :param pt:
         :return:
@@ -79,15 +61,17 @@ class PythonStandard4Player(SnakeEngine):
             if pt in snake.body:
                 return False
 
-    def _random_unoccupied_pt(self):
+    def _random_unoccupied_pt(self, prng):
         r"""
-        Places food in a random unoccupied location
+        Places food in a random unoccupied location. Deterministic based on prng key.
         :return:
         """
         x: int
         y: int
+        prng = jrand.fold_in(prng, 12345)
         while True:
-            point = jrand.randint(self._random(), shape=[2],
+            prng, subkey = jrand.split(prng)
+            point = jrand.randint(subkey, shape=[2],
                                   minval=jnp.array([0, 0]),
                                   maxval=jnp.array([self.width, self.height]))
             x, y = point[0], point[1]
@@ -115,16 +99,6 @@ class PythonStandard4Player(SnakeEngine):
         #  Initialize the boards as empty boards
         self.boards = {"snake_{}".format(i): jnp.zeros([self.width, self.height], dtype=jnp.int16)
                        for i in range(self.player_count)}
-
-    def __getitem__(self, item):
-        if item == 0:
-            return self.snakes_array
-        if item == 1:
-            return self.turn_num
-        if item == 2:
-            return self.boards
-
-        raise IndexError
 
     def __str__(self):
         turn = "Turn {}.".format(self.turn_num)
@@ -382,13 +356,13 @@ class PythonStandard4Player(SnakeEngine):
     def submit_move(self, snake_id, move: int) -> None:
         self.pending_moves[snake_id] = move
 
-    def step(self) -> None:
+    def step(self) -> PythonGameState:
         self._move_snakes()
         self._place_food()
         self.update_board()
         self.turn_num += 1
 
-    def reset(self, options: dict | None = None) -> None:
+    def _spawn_snakes_and_food(self, options: dict | None = None) -> None:
 
         single_player = False
 
@@ -495,123 +469,3 @@ class PythonStandard4Player(SnakeEngine):
     def seed(self, seed) -> None:
         self.rng_seed = seed
         self.rng_key = jrand.PRNGKey(seed)
-
-
-class BoardUpdater:
-    r"""
-    A function that computes the array representation of a board. A callable is constructed with a fixed
-    board height and width, and a fixed max number of players.
-    It is a pure function that accepts all state required to create the board array.
-
-    It also has a max snake length based on the dimensions of the board. If all snakes are within
-    the dimensions, it uses the jitted version, and otherwise falls back on the interpreter.
-
-    Also, hazards aren't supported right now.
-    """
-
-    jitted_board: Callable[[list[list[tuple[int, int], list[tuple[int, int]]]], jax.Array], jax.Array]
-    width: Final[int]
-    height: Final[int]
-    player_count: Final[int]
-    max_snake_len: Final[int]
-    max_food: Final[int]
-    enable_hazards = False
-
-    def infinite_board(self, snake_bodies, food, board):
-        r"""Represents a board as an array"""
-
-        #  Empty the board
-        board = jnp.zeros([self.width, self.height], dtype=jnp.int16)
-
-        for x, y in food:
-            board = board.at[x, y].set(1)
-
-        for i, snake_body in enumerate(snake_bodies):
-
-            #  Snake names are always of the form snake_i
-            head = 3 * i + 3
-            body = 3 * i + 4
-            tail = 3 * i + 5
-
-            if len(snake_body) == 0:
-                #  This snake is dead
-                continue
-
-            #  Tail
-            for x, y in snake_body[-1:]:
-                board = board.at[x, y].set(tail)
-
-            #  Body
-            for x, y in snake_body[1:-1]:
-                board = board.at[x, y].set(body)
-
-            #  Head
-            for x, y in snake_body[:1]:
-                board = board.at[x, y].set(head)
-
-        return board
-
-    def finite_board(self, snake_bodies, food, board):
-        r"""
-        Represents a board up to an array. Compatible with jax jit. Input must be within class attributes.
-        """
-
-        #  Empty the board
-        board = jnp.zeros([self.width, self.height], dtype=jnp.int16)
-
-        for i in range(self.max_food):
-            if i >= len(food):
-                break
-            x, y = food[i]
-            board = board.at[x, y].set(1)
-
-        for i in range(self.player_count):
-
-            if i >= len(snake_bodies):
-                break
-
-            if len(snake_bodies[i]) == 0:
-                continue
-
-            tx, ty = snake_bodies[i][-1]
-            hx, hy = snake_bodies[i][0]
-            tail = 3 * i + 5
-            body = 3 * i + 4
-            head = 3 * i + 3
-
-            board = board.at[tx, ty].set(tail)
-
-            for j in range(1, self.max_snake_len):
-                if j >= len(snake_bodies[i]) - 1:
-                    break
-
-                x, y = snake_bodies[i][j]
-                board = board.at[x, y].set(body)
-
-            board = board.at[hx, hy].set(head)
-        return board
-
-    def __init__(self, width, height, max_players, jit_enabled=True):
-        self.width = width
-        self.height = height
-        self.player_count = max_players
-        self.max_snake_len = int(1.7 * sqrt(width * height))  # 18 on a standard board
-        self.max_food = max_players + 11  # 16 on a standard board with 4 players
-
-        if jit_enabled:
-            self.jitted_board = jax.jit(self.finite_board, donate_argnums=2)  # is donating args safe here?
-        else:
-            self.jitted_board = self.infinite_board
-
-    def __call__(self, snake_bodies, food, board):
-        r"""
-        Runs the board update function. Requires a list of snake bodies, list of food points,
-        as well as a buffer donation for the board.
-        """
-        if len(food) > self.max_food:
-            return self.infinite_board(snake_bodies, food, board)
-        for body in snake_bodies:
-            if len(body) > self.max_snake_len:
-                return self.infinite_board(snake_bodies, food, board)
-
-        return self.jitted_board(snake_bodies, food, board)

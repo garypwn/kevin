@@ -9,7 +9,7 @@ import jax.numpy as jnp
 import optax
 from coax.value_losses import mse, huber
 
-from kevin.src.engine.python_engine import BoardUpdater, PythonStandard4Player
+from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
 from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
 from kevin.src.environment.wrapper import FlatteningWrapper
 from kevin.src.model.model import Model, process_obs, resnet
@@ -22,7 +22,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 name = 'standard_4p_ppo'
 
 updater = BoardUpdater(11, 11, 4)
-game = PythonStandard4Player(updater=updater)
+game = PythonGameState(updater=updater)
 env = MultiSnakeEnv(game)
 env.fancy_render = True
 gym_env = DummyGymEnv(env)
