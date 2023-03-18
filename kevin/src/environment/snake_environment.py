@@ -34,14 +34,15 @@ class MultiSnakeEnv(ParallelEnv):
         self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count)]
         self.reset()
 
-        self.action_spaces = {agent: spaces.Discrete(4) for agent in self.possible_agents}
+        self.action_spaces = {agent: spaces.Discrete(3) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
 
     def action_space(self, agent):
-        return self.action_spaces[agent]
+        return spaces.Discrete(3)
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent) -> spaces.Space:
+        viewport = 1 + 2 * max(self.game.width, self.game.height)
         return spaces.Dict(
             {
                 "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
@@ -50,14 +51,10 @@ class MultiSnakeEnv(ParallelEnv):
                                      high=np.full(self.game.player_count, 100), dtype=jnp.int16),
 
                 #  Board dimensions
-                "board": spaces.Box(low=np.zeros([self.game.width, self.game.height], dtype=int),
-                                    high=np.full([self.game.width, self.game.height],
+                "boards": spaces.Box(0, self.game.width * self.game.height,
 
-                                                 #  Max value is the max value of a snake body cell
-                                                 3 * self.game.player_count + 5,
-                                                 dtype=int),
-                                    shape=[self.game.width, self.game.height],
-                                    dtype=jnp.int16),
+                                     # One layer / snake, hazard, food
+                                     shape=[self.game.player_count + 2, viewport, viewport], dtype=jnp.int16),
             }
         )
 
@@ -87,10 +84,8 @@ class MultiSnakeEnv(ParallelEnv):
     def step(self, actions: ActionDict) -> Tuple[
         ObsDict, Dict[str, float], Dict[str, bool], Dict[str, bool], Dict[str, dict]
     ]:
-        for agent, action in actions.items():
-            self.game.submit_move(agent, action)
 
-        self.game.step()
+        self.game.step(actions)
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
         rewards = {agent: self.game.get_reward(agent) for agent in self.agents}
@@ -106,7 +101,7 @@ class MultiSnakeEnv(ParallelEnv):
         return observations, rewards, terminations, truncations, infos
 
     def render(self) -> None | jnp.ndarray | str | List:
-        if self.fancy_render == True:
+        if self.fancy_render:
             return self.game.fancy_str()
         return self.game.__str__()
 

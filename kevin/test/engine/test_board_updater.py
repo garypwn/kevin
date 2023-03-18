@@ -11,18 +11,18 @@ test_viewport = jnp.zeros([updater.viewport_size, updater.viewport_size], dtype=
 
 def test_pov():
     print(test_board)
-    print(updater.snake_pov((2, 2), 0, test_board, test_viewport))
+    print(updater.snake_pov((2, 2), 0, test_board))
 
 
 def test_walls():
     print(test_board)
-    print(updater.walls_pov((0, 0), 2, test_viewport))
+    print(updater.walls_pov((0, 0), 2))
 
 
 def test_place_snake():
-    snake = [(2, 2), (2, 3), (2, 4), (3, 4)]
+    snake = [(2, 2), (2, 3), (2, 4), (3, 4), (4, 4), (4, 3)]
     board = updater.snake_sub_board(snake, test_board)
     print("\n", board)
-    print(updater.snake_pov((2, 2), 2, board, test_viewport))
+    print(updater.snake_pov((2, 2), 2, board))
 
 

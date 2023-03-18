@@ -21,7 +21,7 @@ class BoardUpdater:
     batch_size: Final[int]
     viewport_size: Final[int]
 
-    _snake_placer: Final[Callable[[list[tuple[int, int]], int, jax.Array], jax.Array]]
+    _snake_placer: Final[Callable[[list[tuple[int, int]], int, int, jax.Array], jax.Array]]
 
     def snake_sub_board(self, body, board):
         """
@@ -35,20 +35,25 @@ class BoardUpdater:
             return board
 
         for i in range(0, len(body), self.batch_size):
-            board = self._place_snake(body, i, board)
+            if i + self.batch_size > len(body):
+                batch = jnp.array(body[i:])
+                cutoff = len(body) % self.batch_size
+            else:
+                batch = jnp.array(body[i: i + self.batch_size])
+                cutoff = self.batch_size + 1
+            board = self._snake_placer(batch, len(body) - i, cutoff, board)
 
         return board
 
-    def _place_snake(self, body, whence, board):
+    def _place_snake(self, batch, rev_idx, cutoff, board):
 
         for i in range(self.batch_size):
-            idx = whence + i
 
-            if i >= len(body):
+            if i >= cutoff:
                 break
 
-            x, y = body[idx]
-            board = board.at[x, y].set(len(body) - idx)
+            x, y = batch[i]
+            board = board.at[x, y].max(rev_idx - i)
 
         return board
 
@@ -63,26 +68,31 @@ class BoardUpdater:
             return board
 
         for i in range(0, len(food), self.batch_size):
-            board = self._food_placer(food, i, board)
+            if i + self.batch_size > len(food):
+                batch = jnp.array(food[i:])
+                cutoff = len(food) % self.batch_size
+            else:
+                batch = jnp.array(food[i: i + self.batch_size])
+                cutoff = self.batch_size + 1
+            board = self._food_placer(batch, cutoff, board)
 
         return board
 
-    def _place_food(self, body, whence, board):
+    def _place_food(self, batch, cutoff, board):
 
         for i in range(self.batch_size):
-            idx = whence + i
 
-            if i >= len(body):
+            if i >= cutoff:
                 break
 
-            x, y = body[idx]
-            board = board.at[(x, y)].set(1)
+            x, y = batch[i]
+            board = board.at[x, y].set(1)
 
         return board
 
-    snake_pov: Final[Callable[[tuple[int, int], int, jax.Array, jax.Array], jax.Array]]
+    snake_pov: Final[Callable[[tuple[int, int], int, jax.Array], jax.Array]]
 
-    def _create_pov(self, head, facing, board, donate_board):
+    def _create_pov(self, head, facing, board):
         """
         Place the snake in the middle of the board, facing the snake's current heading
         """
@@ -95,9 +105,9 @@ class BoardUpdater:
 
         return jnp.rot90(donate_board, facing)
 
-    walls_pov: Final[Callable[[tuple[int, int], int, jax.Array], jax.Array]]
+    walls_pov: Final[Callable[[tuple[int, int], int], jax.Array]]
 
-    def _create_walls(self, head, facing, donate_board):
+    def _create_walls(self, head, facing):
         """
         Place the snake in the middle of the board, facing the snake's current heading
         """
@@ -121,13 +131,13 @@ class BoardUpdater:
 
         if jit_enabled:
             if donate:
-                self._snake_placer = jax.jit(self._place_snake, donate_argnums=2)
-                self._food_placer = jax.jit(self._place_food, donate_argnums=2)
-                self.snake_pov = jax.jit(self._create_pov, static_argnums=1, donate_argnums=3)
-                self.walls_pov = jax.jit(self._create_pov, static_argnums=1, donate_argnums=2)
+                self._snake_placer = jax.jit(self._place_snake, donate_argnums=3, static_argnums=2)
+                self._food_placer = jax.jit(self._place_food, donate_argnums=2, static_argnums=1)
+                self.snake_pov = jax.jit(self._create_pov, static_argnums=1)
+                self.walls_pov = jax.jit(self._create_walls, static_argnums=1)
             else:
-                self._snake_placer = jax.jit(self._place_snake)
-                self._food_placer = jax.jit(self._place_food)
+                self._snake_placer = jax.jit(self._place_snake, static_argnums=2)
+                self._food_placer = jax.jit(self._place_food, static_argnums=1)
                 self.snake_pov = jax.jit(self._create_pov, static_argnums=1)
                 self.walls_pov = jax.jit(self._create_walls, static_argnums=1)
         else:

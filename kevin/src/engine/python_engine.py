@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import copy
 import random
 import sys
-from typing import Final, Callable
+from typing import Final
 
 import jax
 import jax.numpy as jnp
@@ -33,7 +34,7 @@ class PythonGameState(GameState):
     width: Final[int] = 11
 
     #  Board updater fn
-    updater: Final[Callable[[list[list[tuple[int, int]]], list[tuple[int, int]], jax.Array], jax.Array]]
+    updater: BoardUpdater
 
     #  State
     turn_num: int = 0
@@ -45,6 +46,10 @@ class PythonGameState(GameState):
 
     food: list[tuple[int, int]]
     hazards: list[tuple[int, int]] = []
+
+    #  Observations
+    snake_boards: dict[str: jax.Array] = {}
+    food_board: jax.Array = None
 
     def _is_occupied(self, pt: tuple[int, int]) -> bool:
         """
@@ -89,63 +94,24 @@ class PythonGameState(GameState):
             seed = random.randrange(sys.maxsize)
 
         self.rng_seed = seed
+        self.seed(seed)
 
         #  Set up the updater. This allows us to pre-jit the updater and use it in all games.
         if updater is None:
-            self.updater = BoardUpdater(self.width, self.height, self.player_count)
+            self.updater = BoardUpdater(self.width, self.height)
         else:
             self.updater = updater
 
-        #  Initialize the boards as empty boards
-        self.boards = {"snake_{}".format(i): jnp.zeros([self.width, self.height], dtype=jnp.int16)
-                       for i in range(self.player_count)}
+        self._spawn_snakes_and_food()
 
-    def __str__(self):
-        turn = "Turn {}.".format(self.turn_num)
-        snakes = {"Snake {}: {}".format(i, snake) for i, snake in enumerate(self.snakes_array)}
-        jnp.set_printoptions(formatter={"int": lambda i: "{: >2}".format(i)})
-        return "\n{}\n{}\n{}\n".format(turn, snakes, self.boards["snake_0"])
-
-    def fancy_str(self):
-        turn = "Turn {}.".format(self.turn_num)
-        snakes = {name: snake.health for name, snake in self.snakes.items()}
-        board = self.boards["snake_0"]
-        l = np.full([self.width, self.height], "__")
-        for i, row in enumerate(board):
-            for j, col in enumerate(row):
-                match board[i, j]:
-                    case 0:
-                        l[i, j] = "  "
-                    case 1:
-                        l[i, j] = "\N{tomato}"
-                    case 3:
-                        l[i, j] = "\N{large green square}"
-                    case 4:
-                        l[i, j] = "\N{large green circle}"
-                    case 5:
-                        l[i, j] = "\N{large green circle}"
-                    case 6:
-                        l[i, j] = "\N{large orange square}"
-                    case 7:
-                        l[i, j] = "\N{large orange circle}"
-                    case 8:
-                        l[i, j] = "\N{large orange circle}"
-                    case 9:
-                        l[i, j] = "\N{large yellow square}"
-                    case 10:
-                        l[i, j] = "\N{large yellow circle}"
-                    case 11:
-                        l[i, j] = "\N{large yellow circle}"
-                    case 12:
-                        l[i, j] = "\N{large blue square}"
-                    case 13:
-                        l[i, j] = "\N{large blue circle}"
-                    case 14:
-                        l[i, j] = "\N{large blue circle}"
-                    case _:
-                        l[i, j] = "  "
-
-        return "\n{}\n{}\n{}\n".format(turn, snakes, l)
+    def __copy__(self):
+        new = PythonGameState(self.rng_seed, self.updater)
+        new.turn_num = self.turn_num
+        new.rng_key = self.rng_key.copy()
+        new.snakes = copy.deepcopy(self.snakes)
+        new.food = copy.deepcopy(self.food)
+        new.hazards = copy.deepcopy(self.hazards)
+        return new
 
     def update_board(self) -> dict[str: jax.Array]:
         """
@@ -156,40 +122,23 @@ class PythonGameState(GameState):
             num = int(name[6:])
             self.snakes_array[num] = snake.health
 
-        bodies = list([snake.body for _, snake in self.snakes.items()])
-        for snake, _ in self.boards.items():
-            i = int(snake[6:])
-            self.boards[snake] = self.updater(bodies[i:] + bodies[:i], self.food, self.boards[snake])
+        for name, snake in self.snakes.items():
+            self.snake_boards[name] = self.updater.snake_sub_board(snake.body, self.snake_boards.get(name))
 
-        return self.boards  # this is just so we can block until ready in tests
+        self.food_board = self.updater.food_sub_board(self.food, self.food_board)
+
+        return self.food_board  # this is just so we can block until ready in tests
 
     def _eliminated(self, snake_id: str) -> bool:
         r"""
-        Check if a snake is elminated. A snake is eliminated if it has 0 length.
+        Check if a snake is eliminated. A snake is eliminated if it has 0 length.
         :param snake_id:
         :return: True if the snake is eliminated
         """
         return len(self.snakes[snake_id].body) < 1
 
-    def _move_snakes(self):
+    def _move_snakes(self, actions: dict):
         r""" Helper for step() """
-
-        #  Compute next move targets
-        def move_to_pt(pt: tuple[int, int], move) -> tuple[int, int]:
-            x, y = pt
-            match move:
-                case 0:  # Up
-                    return x, y + 1
-                case 1:  # right
-                    return x + 1, y
-
-                case 2:  # down
-                    return x, y - 1
-
-                case 3:  # left
-                    return x - 1, y
-
-            raise ValueError
 
         # Two snakes can eat the same food. It only disappears after resolving.
         eaten_food: list[tuple[int, int]] = []
@@ -201,9 +150,28 @@ class PythonGameState(GameState):
             if len(snake.body) == 0:
                 continue
 
-            #  Move the head and tail
+            # Figure out heading
             old_head = snake.body[0]
-            snake.body.insert(0, move_to_pt(old_head, self.pending_moves[name]))
+            x0, y0 = old_head
+            hx, hy = (0, 1)  # Heading
+            if snake.body[0] != snake.body[1]:
+                x1, y1 = snake.body[1]
+                hx, hy = (x0 - x1, y0 - y1)
+
+            # Compute next move
+            match actions[name]:
+                case 1:  # Forward
+                    target = (x0 + hx, y0 + hy)
+                case 0:  # Left
+                    target = (x0 - hy, y0 + hx)
+                case 2:  # Right
+                    target = (x0 + hy, y0 - hx)
+                case _:
+                    raise ValueError
+
+            #  Move the head and tail
+
+            snake.body.insert(0, target)
             snake.body.pop()
 
             head = snake.body[0]
@@ -267,7 +235,7 @@ class PythonGameState(GameState):
         for name in eliminated:
             self.snakes[name].body = []
 
-    def _place_food(self):
+    def _place_food(self, rng):
         r"""
         Places new food on the board. It seems like default BS keep 1 food at all times, and have a 15% chance
         of spawning new food if there is already food.
@@ -280,17 +248,51 @@ class PythonGameState(GameState):
         curr_food = len(self.food)
 
         if curr_food < min_food:
-            self.food.append(self._random_unoccupied_pt())
+            self.food.append(self._random_unoccupied_pt(rng))
             return
 
-        roll = jrand.randint(self._random(), [1], minval=0, maxval=100)
+        roll = jrand.randint(rng, [1], minval=0, maxval=100)
         if roll[0] < food_chance:
-            self.food.append(self._random_unoccupied_pt())
+            self.food.append(self._random_unoccupied_pt(rng))
 
     def get_observation(self, snake_id: str) -> dict:
+
+        if self._eliminated(snake_id):
+            raise ValueError("Dead snakes cannot observe.")
+
         i = int(snake_id[6:])
         ordered_snakes = self.snakes_array[i:] + self.snakes_array[:i]
-        return {"turn": self.turn_num, "snakes": jnp.array(ordered_snakes), "board": self.boards[snake_id]}
+        nums = [n for n in range(self.player_count)]
+        ordering = nums[i:] + nums[:i]
+
+        # Boards should be in order with our snake as number 0
+        ordered_snake_boards = [self.snake_boards["snake_{}".format(ordering[n])] for n in nums]
+
+        snake = self.snakes[snake_id]
+        head = snake[0]
+        x0, y0 = head
+        x1, y1 = snake[1]
+        heading = (x0 - x1, y0 - y1)
+        match heading:
+            case (0, 0):
+                d = 0
+            case (0, 1):
+                d = 0
+            case (1, 0):
+                d = 1
+            case (0, -1):
+                d = 2
+            case (-1, 0):
+                d = 3
+            case _:
+                raise ValueError
+
+        walls = self.updater.walls_pov(head, d)
+        povs = [self.updater.snake_pov(head, d, board)
+                for board in ordered_snake_boards]
+
+        boards = jnp.stack([povs[0], walls] + povs[1:], 0)
+        return {"turn": self.turn_num, "snakes": jnp.array(ordered_snakes), "boards": boards}
 
     def get_terminated(self, snake_id) -> bool:
 
@@ -353,14 +355,19 @@ class PythonGameState(GameState):
 
         return neutral_reward
 
-    def submit_move(self, snake_id, move: int) -> None:
-        self.pending_moves[snake_id] = move
+    def step(self, actions) -> PythonGameState:
+        cpy = self.__copy__()
+        cpy._move_snakes(actions)
+        cpy.rng_key, subkey = jrand.split(cpy.rng_key)
+        cpy._place_food(subkey)
+        cpy.update_board()
+        cpy.turn_num += 1
+        return cpy
 
-    def step(self) -> PythonGameState:
-        self._move_snakes()
-        self._place_food()
-        self.update_board()
-        self.turn_num += 1
+    def reset(self, options: dict | None = None) -> PythonGameState:
+        cpy = self.__copy__()
+        cpy._spawn_snakes_and_food(options)
+        return cpy
 
     def _spawn_snakes_and_food(self, options: dict | None = None) -> None:
 
@@ -397,9 +404,10 @@ class PythonGameState(GameState):
         cardinals = [(xn, yd), (xd, yn), (xd, yx), (xx, yd)]
 
         #  Shuffle
-        order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
+        self.rng_key, subkey_1, subkey_2, subkey_3 = jrand.split(self.rng_key, 4)
+        order = jrand.permutation(subkey_1, jnp.array([0, 1, 2, 3]))
         corners = [corners[i] for i in order]
-        order = jrand.permutation(self._random(), jnp.array([0, 1, 2, 3]))
+        order = jrand.permutation(subkey_2, jnp.array([0, 1, 2, 3]))
         cardinals = [cardinals[i] for i in order]
 
         points = corners + cardinals
@@ -445,7 +453,8 @@ class PythonGameState(GameState):
                     tentative.remove((x, y))
 
             permute = [i for i, _ in enumerate(tentative)]
-            order = jrand.permutation(self._random(), jnp.array(permute))
+            subkey_3, subkey_4 = jrand.split(subkey_3)
+            order = jrand.permutation(subkey_4, jnp.array(permute))
             tentative = [tentative[i] for i in order]
 
             if len(tentative) != 0:

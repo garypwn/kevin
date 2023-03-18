@@ -1,6 +1,7 @@
+from __future__ import annotations
+
 from abc import abstractmethod, ABC
 from typing import Final
-from __future__ import annotations
 
 
 # noinspection PyMethodMayBeStatic
@@ -29,10 +30,6 @@ class GameState(ABC):
         :param snake_id: Which snake to flag as "you"
         :return: The board state
         """
-        pass
-
-    @abstractmethod
-    def fancy_str(self):
         pass
 
     def get_reward(self, snake_id) -> float:

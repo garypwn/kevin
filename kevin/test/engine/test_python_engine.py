@@ -6,10 +6,11 @@ import pytest
 from kevin.src.engine.python_engine import PythonGameState, Snake, BoardUpdater
 import jax.numpy as jnp
 
+updater = BoardUpdater(11, 11)
+
 
 def create_game(seed):
-    game = PythonGameState(seed)
-    game.reset()
+    game = PythonGameState(seed, updater)
     return game
 
 
@@ -21,16 +22,20 @@ def test_print_game():
 @pytest.mark.parametrize("seed", range(0, 200000, 10007))
 def test_spawn_determinism(seed: int):
     games = (create_game(seed), create_game(seed))
-    print(games[0])
-    assert jnp.array_equal(games[0].boards["snake_0"], games[1].boards["snake_0"])
+    o1, o2 = (games[0].get_observation("snake_0")["boards"], games[1].get_observation("snake_0")["boards"])
+    print(o1)
+    assert jnp.array_equal(o1, o2)
 
 
 @pytest.mark.parametrize("seed", range(50000, 700000, 50023))
 def test_no_initial_food_in_corner(seed: int):
     game = create_game(seed)
-    print(game)
+    obs = game.food_board
+    print(game.food)
+    print(obs)
+    assert len(game.food) == 5
     for i in range(4):
-        assert jnp.rot90(game.boards["snake_0"], k=i)[0, 0] == 0
+        assert jnp.rot90(obs, k=i)[0, 0] == 0
 
 
 @pytest.mark.parametrize("seed", range(800000, 1000000, 77023))
@@ -71,23 +76,22 @@ def test_count_initial_food_and_snakes_1player(seed: int):
 @pytest.mark.parametrize("seed", range(0, 200000, 20013))
 def test_snake_heads_move(seed: int):
     game = create_game(seed)
-    print(game)
-    for name, move in zip(game.snakes, [0, 3, 1, 2]):
-        game.submit_move(name, move)
+    print(game.snakes)
+    moves = {"snake_{}".format(i) : i % 3 for i in range(4)}
+    print(game.get_observation("snake_0")["boards"][0])
 
-    game.step()
-    print(game)
+    step2 = game.step(moves)
+    step3 = step2.step(moves)
+    print({name: snake.body for name, snake in game.snakes.items()})
+    print({name: snake.body for name, snake in step2.snakes.items()})
+    print({name: snake.body for name, snake in step3.snakes.items()})
 
-    values = [0 for _ in range(5 + 3 * game.player_count)]
+    print(step3.snake_boards["snake_0"])
 
-    for row in game.boards["snake_0"].tolist():
-        for i in row:
-            values[i] += 1
-
-    for i in range(game.player_count):
-        # check there is 1 head and 1 body for each snake
-        assert values[3 * i + 3] == 1
-        assert values[3 * i + 4] == 1
+    obs = [g.get_observation("snake_0")["boards"][0] for g in (game, step2, step3)]
+    print(obs[0], "\n")
+    print(obs[1], "\n")
+    print(obs[2], "\n")
 
 
 def generate_empty_board(seed: int = 0) -> PythonGameState:

@@ -11,7 +11,7 @@ class FlatteningWrapper(BaseParallelWraper):
         return spaces.flatten_space(self.env.observation_space(agent))
 
     def reset(self, seed=None, return_info=False, options=None):
-        result = self.env.reset(seed, return_info, options)
+        result = self.env.reset(seed)
         self.agents = self.env.agents
 
         if return_info:
