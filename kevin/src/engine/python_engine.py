@@ -340,12 +340,14 @@ class PythonGameState(GameState):
         :return:
         """
 
-        # Being long gives a small reward
-        length_reward = 0.2 * len(self.snakes[snake_id].body)
-
         # Neutral reward is based on surviving. Falls off late game.
         neutral_reward = 1. + 15. * 1.1 ** (- self.turn_num) + length_reward
         static_neutral_reward = 1.
+        converging_neutral_reward = 7. / (self.turn_num + 2.)
+
+        # Being long gives a small reward
+        length_reward = 0.2 * len(self.snakes[snake_id].body)
+        converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98**self.turn_num
 
         # Reward is usually 200, except early game.
         victory_reward = 250. - 200. * 1.05 ** (- self.turn_num)
@@ -364,11 +366,11 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return static_neutral_reward + length_reward
+                return converging_neutral_reward + converging_length_reward
 
-            return static_neutral_reward + static_victory_reward
+            return converging_neutral_reward + static_victory_reward
 
-        return static_neutral_reward + length_reward
+        return converging_neutral_reward + converging_length_reward
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
         if options is not None and options.get("save"):
