@@ -369,7 +369,7 @@ class PythonGameState(GameState):
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return -.3
+            return -.5
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -377,11 +377,12 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return 0.01
+                return 0.005 + 0.001 * len(self.snakes[snake_id].body)
 
-            return 1
+            # Multiplayer victory
+            return 1.
 
-        return 0.01
+        return 0.005 + 0.001 * len(self.snakes[snake_id].body)
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
 

@@ -1,4 +1,3 @@
-import cProfile
 import os
 from datetime import datetime
 from time import sleep
@@ -9,7 +8,7 @@ from coax.value_losses import mse
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
-from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
+from kevin.src.environment.snake_environment import DummyGymEnv
 from kevin.src.model.model import Model, residual_body
 
 # set some env vars
@@ -18,156 +17,168 @@ os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.6'  # don't use all gpu mem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 
 
-name = 'standard_4p_ppo'
+class PPOModel:
+    name = 'standard_4p_ppo'
 
-updater = BoardUpdater(11, 11, 4)
-game = PythonGameState(updater=updater)
-env = RewindingEnv(game)
-env.fancy_render = True
-gym_env = DummyGymEnv(env)
+    updater = BoardUpdater(11, 11, 4)
+    game = PythonGameState(updater=updater)
+    env = RewindingEnv(game)
+    env.fancy_render = True
 
-model = Model(residual_body, gym_env.action_space)
+    def __init__(self):
+        self.model = None
+        self.pi_regularizer = None
+        self.v_targ = None
+        self.simple_td = None
+        self.ppo_clip = None
+        self.buffer = None
+        self.v = None
+        self.tracers = None
+        self.pi = None
+        self.pi_behavior = None
+
+    def build(self):
+
+        gym_env = DummyGymEnv(self.env)
+        self.model = Model(residual_body, gym_env.action_space)
+
+        # Optimizers
+        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
+        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
+
+        # q = coax.Q(func_q, gym_env)
+        self.v = coax.V(self.model.v, gym_env)
+        self.pi = coax.Policy(self.model.pi_logits, gym_env)
+
+        self.pi_behavior = self.pi.copy()
+        self.v_targ = self.v.copy()
+
+        # One tracer for each agent
+        self.tracers = {agent: coax.reward_tracing.NStep(n=9, gamma=0.9) for agent in self.env.possible_agents}
+
+        # We just need one buffer ...?
+        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=2048)
+
+        # Regularizer
+        self.pi_regularizer = coax.regularizers.EntropyRegularizer(self.pi, 0.001)
+
+        # Updaters
+        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi, regularizer=self.pi_regularizer)
+        self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
+
+    epoch_num = 0
+    new_epoch = True
+    checkpoint_period = 15
+
+    verbose = False
+
+    def learn(self):
+        for i in range(10000000):
+
+            # Episode start
+            obs = self.env.reset(i)
+            cum_reward = {agent: 0. for agent in self.env.possible_agents}
+            if self.verbose:
+                print(self.env.render())
+
+            while len(self.env.agents) > 0:
+
+                # Get actions
+                actions = {}
+                logps = {}
+                for agent in self.env.agents:
+                    actions[agent], logps[agent] = self.pi_behavior(obs[agent], return_logp=True)
+
+                live_agents = self.env.agents[:]
+                obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
+
+                if self.verbose:
+                    print(self.env.render())
+                    sleep(0.75)
+
+                # Trace rewards
+                for agent in live_agents:
+                    self.tracers[agent].add(
+                        obs[agent],
+                        actions[agent],
+                        rewards[agent],
+                        terminations[agent] or truncations[agent],
+                        logps[agent]
+                    )
+                    cum_reward[agent] += rewards[agent]
+
+                # Update
+                for _, tracer in self.tracers.items():
+                    while tracer:
+                        self.buffer.add(tracer.pop())
+
+                if len(self.buffer) >= self.buffer.capacity:
+                    for _ in range(4 * self.buffer.capacity // 32):  # 4 rounds
+                        transition_batch = self.buffer.sample(batch_size=32)
+                        metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
+                        metrics_pi = self.ppo_clip.update(transition_batch, td_error)
+
+                    self.buffer.clear()
+                    self.pi_behavior.soft_update(self.pi, tau=0.1)
+                    self.v_targ.soft_update(self.v, tau=0.1)
+
+                    self.new_epoch = True
+                    self.epoch_num += 1
+
+                obs = obs_next
+            if self.verbose:
+                print("===== End Game {}. Epoch {} =========================".format(i, self.epoch_num))
+
+            if self.new_epoch:
+                self.new_epoch = False
+
+                # Flush the stack so that we don't get a stinky replay
+                self.env.state_pq = []
+
+                print("===== Game {}. Epoch {} =========================".format(i, self.epoch_num))
+                obs = self.env.reset(i // 15)
+                print(self.env.render())
+                cum_reward = {agent: 0. for agent in self.env.possible_agents}
+
+                while len(self.env.agents) > 0:
+                    # Get actions
+                    actions = {}
+                    for agent in self.env.agents:
+                        actions[agent] = self.pi_behavior.mode(obs[agent])
+
+                    live_agents = self.env.agents[:]
+                    obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
+                    for agent in live_agents:
+                        cum_reward[agent] += rewards[agent]
+
+                    print(self.env.render())
+                    obs = obs_next
+
+                print("===== End Game {}. Epoch {} =========================".format(i, self.epoch_num))
+                print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
+                print("-----------------------------------------------------")
+
+            if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
+                print("======Checkpoint {}============================".format(self.epoch_num))
+                print("-----------------------------------------------")
+                now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+                coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
+                                 self.buffer, self.pi_regularizer, self.simple_td,
+                                 self.ppo_clip, self.model],
+
+                                ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
+
+    def build_from_file(self, path):
+
+        (self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
+         self.buffer, self.pi_regularizer, self.simple_td,
+         self.ppo_clip, self.model) = coax.utils.load(path)
 
 
-# Optimizers
-optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.005))
-optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.005))
+m = PPOModel()
+if False:
+    m.build()
+else:
+    m.build_from_file(".checkpoint/standard_4p_ppo_epoch_540_2023-03-19.pkl.lz4")
 
-# q = coax.Q(func_q, gym_env)
-v = coax.V(model.v, gym_env)
-pi = coax.Policy(model.pi_logits, gym_env)
-
-pi_behavior = pi.copy()
-v_targ = v.copy()
-
-# One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=9, gamma=0.9) for agent in env.possible_agents}
-
-# We just need one buffer ...?
-buffer = coax.experience_replay.SimpleReplayBuffer(capacity=2048)
-
-# Regularizer
-pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.001)
-
-# Updaters
-ppo_clip = coax.policy_objectives.PPOClip(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
-simple_td = coax.td_learning.SimpleTD(v, v_targ, optimizer=optimizer_q, loss_function=mse)
-
-epoch_num = 0
-new_epoch = True
-checkpoint_period = 15
-
-profiler = cProfile.Profile()
-verbose = False
-for i in range(10000000):
-
-    # Adjust hypers in later epochs
-    if epoch_num == 30:
-
-        # Learning rate annealing
-        ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
-        simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
-
-    if epoch_num == 60:
-
-        # Learning rate annealing
-        ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
-        simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
-
-    if i == -1:
-        profiler.enable()
-
-    if i == -1:
-        profiler.disable()
-        profiler.dump_stats("ppo_profile.prof")
-
-    # Episode of single-player
-    obs = env.reset(i)
-    cum_reward = {agent: 0. for agent in env.possible_agents}
-    if verbose:
-        print(env.render())
-
-    while len(env.agents) > 0:
-
-        # Get actions
-        actions = {}
-        logps = {}
-        for agent in env.agents:
-            actions[agent], logps[agent] = pi_behavior(obs[agent], return_logp=True)
-
-        live_agents = env.agents[:]
-        obs_next, rewards, terminations, truncations, _ = env.step(actions)
-
-        if verbose:
-            print(env.render())
-            sleep(0.75)
-
-        # Trace rewards
-        for agent in live_agents:
-            tracers[agent].add(
-                obs[agent],
-                actions[agent],
-                rewards[agent],
-                terminations[agent] or truncations[agent],
-                logps[agent]
-            )
-            cum_reward[agent] += rewards[agent]
-
-        # Update
-        for _, tracer in tracers.items():
-            while tracer:
-                buffer.add(tracer.pop())
-
-        if len(buffer) >= buffer.capacity:
-            for _ in range(4 * buffer.capacity // 32):  # 4 rounds
-                transition_batch = buffer.sample(batch_size=32)
-                metrics_v, td_error = simple_td.update(transition_batch, return_td_error=True)
-                metrics_pi = ppo_clip.update(transition_batch, td_error)
-
-            buffer.clear()
-            pi_behavior.soft_update(pi, tau=0.1)
-            v_targ.soft_update(v, tau=0.1)
-
-            new_epoch = True
-            epoch_num += 1
-
-        obs = obs_next
-    if verbose:
-        print("===== End Game {}. Epoch {} =========================".format(i, epoch_num))
-
-    if new_epoch:
-        new_epoch = False
-
-        # Flush the stack so that we don't get a stinky replay
-        env.state_pq = []
-
-        print("===== Game {}. Epoch {} =========================".format(i, epoch_num))
-        obs = env.reset(i // 15)
-        print(env.render())
-        cum_reward = {agent: 0. for agent in env.possible_agents}
-
-        while len(env.agents) > 0:
-            # Get actions
-            actions = {}
-            for agent in env.agents:
-                actions[agent] = pi_behavior.mode(obs[agent])
-
-            live_agents = env.agents[:]
-            obs_next, rewards, terminations, truncations, _ = env.step(actions)
-            for agent in live_agents:
-                cum_reward[agent] += rewards[agent]
-
-            print(env.render())
-            obs = obs_next
-
-        print("===== End Game {}. Epoch {} =========================".format(i, epoch_num))
-        print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
-        print("-----------------------------------------------------")
-
-    if epoch_num % checkpoint_period == 0 and epoch_num != 0:
-        print("======Checkpoint {}============================".format(epoch_num))
-        print("-----------------------------------------------")
-        now = datetime.today().strftime('%Y-%m-%d')
-        coax.utils.dump([pi, pi_behavior, v, tracers, buffer, pi_regularizer, simple_td, ppo_clip],
-                        ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(name, epoch_num, now))
-
+m.learn()
