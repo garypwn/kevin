@@ -51,6 +51,7 @@ class PythonGameState(GameState):
     #  Observations
     snake_boards: dict[str: jax.Array]
     food_board: jax.Array | None
+    recent_eliminations = set()
 
     # Options
     save_replays = False
@@ -206,7 +207,7 @@ class PythonGameState(GameState):
                 eaten_food.append(head)
 
         #  Check elimination conditions
-        eliminated: set = set()
+        self.recent_eliminations = set()
         for name, snake in self.snakes.items():
 
             if len(snake.body) < 1:
@@ -218,19 +219,19 @@ class PythonGameState(GameState):
 
             #  Check out of bounds
             if x < 0 or y < 0:
-                eliminated.add(name)
+                self.recent_eliminations.add(name)
 
             if x >= self.width or y >= self.height:
-                eliminated.add(name)
+                self.recent_eliminations.add(name)
 
             #  Check out of health
             if snake.health <= 0:
-                eliminated.add(name)
+                self.recent_eliminations.add(name)
 
             #  Check for collision with snake body (or self)
             for id2, snake2 in self.snakes.items():
                 if head in snake2.body[1:]:
-                    eliminated.add(name)
+                    self.recent_eliminations.add(name)
 
             #  Check for head-to-head collisions
             for name2, snake2 in self.snakes.items():
@@ -244,7 +245,7 @@ class PythonGameState(GameState):
 
                 if head == snake2[0]:
                     if len(snake.body) <= len(snake2.body):
-                        eliminated.add(name)
+                        self.recent_eliminations.add(name)
 
         #  Remove eaten food
         for morsel in eaten_food:
@@ -252,13 +253,13 @@ class PythonGameState(GameState):
                 self.food.remove(morsel)
 
         #  Eliminate snakes
-        for name in eliminated:
+        for name in self.recent_eliminations:
             # Save the dead snake for later
             cpy = copy.deepcopy(self.snakes[name])
             self.dead_snakes[name] = cpy
             self.snakes[name].body = []
 
-        if len(eliminated) > 0 and self.save_replays and self.turn_num > 12:
+        if len(self.recent_eliminations) > 0 and self.save_replays and self.turn_num > 12:
             self._internal_replay_flag = True
 
     def _place_food(self, rng):
@@ -346,7 +347,7 @@ class PythonGameState(GameState):
         return False
 
     def global_observation(self) -> dict:
-        return {"snakes": self.snakes_array, "turn": self.turn_num, "board": self.boards["snake_0"]}
+        return self.get_observation("snake_0")
 
     def get_reward(self, snake_id) -> float:
         r"""
@@ -357,19 +358,27 @@ class PythonGameState(GameState):
 
         # Neutral reward is based on surviving. Falls off late game.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
+        neutral_reward = 0.005
 
         # Being long gives a small reward
         converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98 ** self.turn_num
+        length_reward = 0.001 * len(self.snakes[snake_id].body)
 
         # Reward for winning is huge
-        static_victory_reward = 350.
+        static_victory_reward = 1.
 
         # Defeat gives a static penalty
-        defeat_penalty = -75.
+        defeat_penalty = -.5
+
+        # Add a reward for other snakes dying (hopefully translates to the urge to kill)
+        if len(self.recent_eliminations) > 0 and snake_id not in self.recent_eliminations:
+            kill_reward = 0.2 * len(self.recent_eliminations)
+        else:
+            kill_reward = 0
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return -.5
+            return defeat_penalty
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -377,12 +386,12 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return 0.005 + 0.001 * len(self.snakes[snake_id].body)
+                return neutral_reward + length_reward
 
             # Multiplayer victory
-            return 1.
+            return static_victory_reward + neutral_reward + length_reward + kill_reward
 
-        return 0.005 + 0.001 * len(self.snakes[snake_id].body)
+        return neutral_reward + length_reward + kill_reward
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
 
