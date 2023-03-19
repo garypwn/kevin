@@ -158,15 +158,15 @@ class PPOModel:
                 print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
                 print("-----------------------------------------------------")
 
-            if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
-                print("======Checkpoint {}============================".format(self.epoch_num))
-                print("-----------------------------------------------")
-                now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
-                coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
-                                 self.buffer, self.pi_regularizer, self.simple_td,
-                                 self.ppo_clip, self.model],
+                if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
+                    print("======Checkpoint {}============================".format(self.epoch_num))
+                    print("-----------------------------------------------")
+                    now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+                    coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
+                                     self.buffer, self.pi_regularizer, self.simple_td,
+                                     self.ppo_clip, self.model],
 
-                                ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
+                                    ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
 
     def build_from_file(self, path):
 
@@ -179,6 +179,6 @@ m = PPOModel()
 if False:
     m.build()
 else:
-    m.build_from_file(".checkpoint/standard_4p_ppo_epoch_540_2023-03-19.pkl.lz4")
+    m.build_from_file(".checkpoint/standard_4p_ppo_epoch_15_2023-03-19_15:09:18.pkl.lz4")
 
 m.learn()
