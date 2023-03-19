@@ -9,6 +9,7 @@ from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
 from kevin.src.engine import utils
+from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.engine.snake_engine import GameState
 
 
@@ -106,6 +107,11 @@ class MultiSnakeEnv(ParallelEnv):
             board = utils.fancy_board_from_game(self.game)
             turn = self.game.turn_num
             snakes = {name: snake.health for name, snake in self.game.snakes.items()}
+
+            if isinstance(self.game, PythonGameState) and self.game.branch_name != "":
+                branch = self.game.branch_name
+                return "\nBranch {}: Turn {}.\n{}\n{}\n".format(branch, turn, snakes, board)
+
             return "\nTurn {}.\n{}\n{}\n".format(turn, snakes, board)
         return self.game.__str__()
 

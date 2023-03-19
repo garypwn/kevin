@@ -52,6 +52,11 @@ class PythonGameState(GameState):
     snake_boards: dict[str: jax.Array]
     food_board: jax.Array | None
 
+    # Options
+    save_replays = False
+    replay_flag = False
+    _internal_replay_flag = False
+
     def _is_occupied(self, pt: tuple[int, int]) -> bool:
         """
         Checks if a point is occupied.
@@ -108,6 +113,10 @@ class PythonGameState(GameState):
 
         self._spawn_snakes_and_food()
 
+        self.replay_flag = False
+        self._internal_replay_flag = False
+        self.branch_name = ""
+
     def full_copy(self):
 
         new = PythonGameState(self.rng_seed, self.updater)
@@ -117,6 +126,10 @@ class PythonGameState(GameState):
         new.dead_snakes = copy.deepcopy(self.dead_snakes)
         new.food = copy.deepcopy(self.food)
         new.hazards = copy.deepcopy(self.hazards)
+        new.branch_name = copy.deepcopy(self.branch_name)
+        new.replay_flag = False
+        new._internal_replay_flag = False
+        new.save_replays = self.save_replays
 
         return new
 
@@ -240,11 +253,13 @@ class PythonGameState(GameState):
 
         #  Eliminate snakes
         for name in eliminated:
-
             # Save the dead snake for later
             cpy = copy.deepcopy(self.snakes[name])
             self.dead_snakes[name] = cpy
             self.snakes[name].body = []
+
+        if len(eliminated) > 0 and self.save_replays and self.turn_num > 4:
+            self._internal_replay_flag = True
 
     def _place_food(self, rng):
         r"""
@@ -341,17 +356,13 @@ class PythonGameState(GameState):
         """
 
         # Neutral reward is based on surviving. Falls off late game.
-        neutral_reward = 1. + 15. * 1.1 ** (- self.turn_num) + length_reward
-        static_neutral_reward = 1.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
 
         # Being long gives a small reward
-        length_reward = 0.2 * len(self.snakes[snake_id].body)
-        converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98**self.turn_num
+        converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98 ** self.turn_num
 
-        # Reward is usually 200, except early game.
-        victory_reward = 250. - 200. * 1.05 ** (- self.turn_num)
-        static_victory_reward = 250.
+        # Reward for winning is huge
+        static_victory_reward = 350.
 
         # Defeat gives a static penalty
         defeat_penalty = -50.
@@ -373,15 +384,28 @@ class PythonGameState(GameState):
         return converging_neutral_reward + converging_length_reward
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
-        if options is not None and options.get("save"):
-            cpy = self.full_copy()
-        else:
-            cpy = self
+
+        cpy = self.full_copy()
         cpy._move_snakes(actions)
         cpy.rng_key, subkey = jrand.split(cpy.rng_key)
         cpy._place_food(subkey)
-        cpy.update_board()
+
         cpy.turn_num += 1
+
+        self.replay_flag = False
+        self._internal_replay_flag = False
+
+        if cpy._internal_replay_flag or (options is not None and options.get("save")):
+            cpy._internal_replay_flag = False
+            self.replay_flag = True
+
+        else:
+            # If we aren't reusing this state, we can donate board buffers to the new one
+            cpy.food_board = self.food_board
+            cpy.snake_boards = self.snake_boards
+
+        cpy.update_board()
+
         return cpy
 
     def reset(self, options: dict | None = None) -> PythonGameState:
@@ -419,6 +443,9 @@ class PythonGameState(GameState):
 
         self.food = []
         self.hazards = []
+        self.branch_name = ""
+        self._internal_replay_flag = False
+        self.replay_flag = False
 
         #  Place snakes following standard BS conventions of cards -> intercards.
         #  BS normally uses a distribution algorithm for num players > 8. That's a todo.

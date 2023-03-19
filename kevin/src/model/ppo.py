@@ -1,13 +1,15 @@
 import cProfile
 import os
+from time import sleep
 
 import coax
 import optax
 from coax.value_losses import huber
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
+from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.environment.snake_environment import MultiSnakeEnv, DummyGymEnv
-from kevin.src.model.model import Model, conv_body, linear_body, residual_body
+from kevin.src.model.model import Model, residual_body
 
 # set some env vars
 os.environ.setdefault('JAX_PLATFORMS', 'gpu, cpu')  # tell JAX to use GPU
@@ -18,7 +20,7 @@ name = 'standard_4p_ppo'
 
 updater = BoardUpdater(11, 11, 4)
 game = PythonGameState(updater=updater)
-env = MultiSnakeEnv(game)
+env = RewindingEnv(game)
 env.fancy_render = True
 gym_env = DummyGymEnv(env)
 
@@ -54,6 +56,7 @@ new_epoch = True
 checkpoint_period = 2500
 
 profiler = cProfile.Profile()
+verbose = False
 for i in range(10000000):
 
     if i == -1:
@@ -66,6 +69,8 @@ for i in range(10000000):
     # Episode of single-player
     obs = env.reset(i)
     cum_reward = {agent: 0. for agent in env.possible_agents}
+    if verbose:
+        print(env.render())
 
     while len(env.agents) > 0:
 
@@ -77,6 +82,10 @@ for i in range(10000000):
 
         live_agents = env.agents[:]
         obs_next, rewards, terminations, truncations, _ = env.step(actions)
+
+        if verbose:
+            print(env.render())
+            sleep(0.75)
 
         # Trace rewards
         for agent in live_agents:
@@ -108,9 +117,14 @@ for i in range(10000000):
             epoch_num += 1
 
         obs = obs_next
+    if verbose:
+        print("===== End Game {}. Epoch {} =========================".format(i, epoch_num))
 
     if new_epoch:
         new_epoch = False
+
+        # Flush the stack so that we don't get a stinky replay
+        env.stack = []
 
         print("===== Game {}. Epoch {} =========================".format(i, epoch_num))
         obs = env.reset(i // 15)
