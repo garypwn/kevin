@@ -103,6 +103,9 @@ def residual_body(x, is_training):
         ResCore(), jnn.relu,
         ResCore(), jnn.relu,
         ResCore(), jnn.relu,
+        ResCore(), jnn.relu,
+        ResCore(), jnn.relu,
+        ResCore(), jnn.relu,
     ])
 
     return conv(boards)
