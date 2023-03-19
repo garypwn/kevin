@@ -8,10 +8,9 @@ from kevin.src.environment.snake_environment import MultiSnakeEnv
 
 
 class RewindingEnv(MultiSnakeEnv):
-    stack_max = 7
-    stale_at = 25
+    stale_at = 7
     stale_counter = 0
-    stack: list[GameState] = []
+    state_pq: list[GameState] = []
 
     def __init__(self, eng: GameState):
         super().__init__(eng)
@@ -27,16 +26,16 @@ class RewindingEnv(MultiSnakeEnv):
         # After several rewinds, we say the game is stale and start a new one.
         if self.stale_counter >= self.stale_at:
             self.stale_counter = 0
-            self.stack = []
+            self.state_pq = []
 
         # If there are saved rewinds in the stack, we can use one of those
-        if len(self.stack) > 0:
+        if len(self.state_pq) > 0:
 
             # Put the most interesting game on the top
-            self.stack.sort(
+            self.state_pq.sort(
                 key=lambda game: game.turn_num * sum([len(snake.body) for _, snake in game.snakes.items()]),
                 reverse=True)
-            self.game = self.stack.pop()
+            self.game = self.state_pq.pop()
             self.stale_counter += 1
 
         else:
@@ -60,7 +59,7 @@ class RewindingEnv(MultiSnakeEnv):
 
         # If replays are on, the game will have set a flag if it is worth replaying
         if isinstance(self.game, PythonGameState) and self.game.replay_flag:
-            self.stack.append(self.game)
+            self.state_pq.append(self.game)
             self.game.replay_flag = False
             self.game.branch_name += "{} - ".format(self.game.turn_num)
 

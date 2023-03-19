@@ -1,10 +1,11 @@
 import cProfile
 import os
+from datetime import datetime
 from time import sleep
 
 import coax
 import optax
-from coax.value_losses import huber
+from coax.value_losses import mse
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
@@ -15,6 +16,7 @@ from kevin.src.model.model import Model, residual_body
 os.environ.setdefault('JAX_PLATFORMS', 'gpu, cpu')  # tell JAX to use GPU
 os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.6'  # don't use all gpu mem
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
+
 
 name = 'standard_4p_ppo'
 
@@ -28,8 +30,8 @@ model = Model(residual_body, gym_env.action_space)
 
 
 # Optimizers
-optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.0006))
-optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0006))
+optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.005))
+optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.005))
 
 # q = coax.Q(func_q, gym_env)
 v = coax.V(model.v, gym_env)
@@ -39,7 +41,7 @@ pi_behavior = pi.copy()
 v_targ = v.copy()
 
 # One tracer for each agent
-tracers = {agent: coax.reward_tracing.NStep(n=6, gamma=0.85) for agent in env.possible_agents}
+tracers = {agent: coax.reward_tracing.NStep(n=9, gamma=0.9) for agent in env.possible_agents}
 
 # We just need one buffer ...?
 buffer = coax.experience_replay.SimpleReplayBuffer(capacity=2048)
@@ -49,15 +51,28 @@ pi_regularizer = coax.regularizers.EntropyRegularizer(pi, 0.001)
 
 # Updaters
 ppo_clip = coax.policy_objectives.PPOClip(pi, optimizer=optimizer_pi, regularizer=pi_regularizer)
-simple_td = coax.td_learning.SimpleTD(v, v_targ, optimizer=optimizer_q, loss_function=huber)
+simple_td = coax.td_learning.SimpleTD(v, v_targ, optimizer=optimizer_q, loss_function=mse)
 
 epoch_num = 0
 new_epoch = True
-checkpoint_period = 2500
+checkpoint_period = 15
 
 profiler = cProfile.Profile()
 verbose = False
 for i in range(10000000):
+
+    # Adjust hypers in later epochs
+    if epoch_num == 30:
+
+        # Learning rate annealing
+        ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+        simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.001))
+
+    if epoch_num == 60:
+
+        # Learning rate annealing
+        ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
+        simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
 
     if i == -1:
         profiler.enable()
@@ -124,7 +139,7 @@ for i in range(10000000):
         new_epoch = False
 
         # Flush the stack so that we don't get a stinky replay
-        env.stack = []
+        env.state_pq = []
 
         print("===== Game {}. Epoch {} =========================".format(i, epoch_num))
         obs = env.reset(i // 15)
@@ -149,9 +164,10 @@ for i in range(10000000):
         print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
         print("-----------------------------------------------------")
 
-    if i % checkpoint_period == 0 and i != 0:
-        print("======Checkpoint {}============================".format(i))
+    if epoch_num % checkpoint_period == 0 and epoch_num != 0:
+        print("======Checkpoint {}============================".format(epoch_num))
         print("-----------------------------------------------")
+        now = datetime.today().strftime('%Y-%m-%d')
         coax.utils.dump([pi, pi_behavior, v, tracers, buffer, pi_regularizer, simple_td, ppo_clip],
-                        ".checkpoint/{}_checkpoint_{}.pkl.lz4".format(name, i))
+                        ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(name, epoch_num, now))
 

@@ -258,7 +258,7 @@ class PythonGameState(GameState):
             self.dead_snakes[name] = cpy
             self.snakes[name].body = []
 
-        if len(eliminated) > 0 and self.save_replays and self.turn_num > 4:
+        if len(eliminated) > 0 and self.save_replays and self.turn_num > 12:
             self._internal_replay_flag = True
 
     def _place_food(self, rng):
@@ -365,11 +365,11 @@ class PythonGameState(GameState):
         static_victory_reward = 350.
 
         # Defeat gives a static penalty
-        defeat_penalty = -50.
+        defeat_penalty = -75.
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return defeat_penalty
+            return -.3
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -377,11 +377,11 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return converging_neutral_reward + converging_length_reward
+                return 0.01
 
-            return converging_neutral_reward + static_victory_reward
+            return 1
 
-        return converging_neutral_reward + converging_length_reward
+        return 0.01
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
 
