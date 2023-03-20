@@ -3,10 +3,10 @@ import timeit
 import jax
 import pytest
 
-from kevin.src.engine.python_engine import PythonGameState, Snake, BoardUpdater
+from kevin.src.engine.python_engine import PythonGameState, Snake, RotatingBoardUpdater
 import jax.numpy as jnp
 
-updater = BoardUpdater(11, 11)
+updater = RotatingBoardUpdater(11, 11)
 
 
 def create_game(seed):
@@ -372,7 +372,7 @@ def test_food_spawn_determinism(seed: int):
 
 
 def test_jaxpr_board_fn():
-    updater = BoardUpdater(11, 11, 4)
+    updater = RotatingBoardUpdater(11, 11, 4)
     game = PythonGameState(updater=updater)
     game.reset()
     food = game.food
@@ -381,7 +381,7 @@ def test_jaxpr_board_fn():
 
 
 def test_board_fn_pytree():
-    updater = BoardUpdater(11, 11, 4)
+    updater = RotatingBoardUpdater(11, 11, 4)
     game = PythonGameState(updater=updater)
     game.reset()
     food = game.food
@@ -408,7 +408,7 @@ def test_board_fn_correctness():
 
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
-    updater = BoardUpdater(11, 11, 4)
+    updater = RotatingBoardUpdater(11, 11, 4)
 
     board_i = updater.infinite_board(snakes, food)
     print(board_i)
@@ -434,7 +434,7 @@ def test_jitted_board_fn_correctness():
 
     food = game.food
     snakes = list([snake.body for _, snake in game.snakes.items()])
-    updater = BoardUpdater(11, 11, 4)
+    updater = RotatingBoardUpdater(11, 11, 4)
     jitted_fn = jax.jit(updater.finite_board)
 
     board_i = updater.infinite_board(snakes, food, game.boards["snake_0"])
@@ -456,7 +456,7 @@ def obs_benchmark(game: PythonGameState):
 
 
 def measure_obs_interpreter_performance():
-    updater = BoardUpdater(11, 11, 4, False)
+    updater = RotatingBoardUpdater(11, 11, 4, False)
     game = PythonGameState(0, updater)
     time = obs_benchmark(game)
     print("Interpreter: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))
@@ -464,7 +464,7 @@ def measure_obs_interpreter_performance():
 
 
 def measure_obs_jit_performance():
-    updater = BoardUpdater(11, 11, 4, True)
+    updater = RotatingBoardUpdater(11, 11, 4, True)
     game = PythonGameState(0, updater)
     time = obs_benchmark(game)
     print("JIT: 500 loops run. Time: {}. Per loop: {}".format(time, time / 500))

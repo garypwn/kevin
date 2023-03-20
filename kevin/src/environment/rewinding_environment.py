@@ -8,7 +8,7 @@ from kevin.src.environment.snake_environment import MultiSnakeEnv
 
 
 class RewindingEnv(MultiSnakeEnv):
-    stale_at = 7
+    stale_at = 5.
     stale_counter = 0.
     state_pq: list[GameState] = []
 
@@ -36,7 +36,10 @@ class RewindingEnv(MultiSnakeEnv):
                 key=lambda game: game.turn_num * sum([len(snake.body) for _, snake in game.snakes.items()]),
                 reverse=True)
             self.game = self.state_pq.pop()
-            self.stale_counter += 0.99 ** self.game.turn_num  # Late game results in less staleness
+
+            # Games stale much slower when more snakes are alive longer
+            self.stale_counter += 0.99 ** self.game.turn_num * sum(
+                [len(snake.body) for _, snake in self.game.snakes.items()])
 
         else:
             self.game = self.game.reset(options)

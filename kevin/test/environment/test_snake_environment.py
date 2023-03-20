@@ -5,7 +5,7 @@ import pytest
 from pettingzoo.test import parallel_api_test, parallel_seed_test, performance_benchmark
 from pettingzoo.utils import parallel_to_aec
 
-from kevin.src.engine.python_engine import PythonGameState, BoardUpdater
+from kevin.src.engine.python_engine import PythonGameState, RotatingBoardUpdater
 from kevin.src.environment.snake_environment import MultiSnakeEnv
 from kevin.src.environment.wrapper import FlatteningWrapper
 
@@ -39,7 +39,7 @@ def test_action_space():
 
 def test_performance_benchmark():
     # Requires manual inspection
-    updater = BoardUpdater(11, 11, 4, False)
+    updater = RotatingBoardUpdater(11, 11, 4, False)
     game = PythonGameState(updater=updater)
     env = MultiSnakeEnv(game)
     aec_env = parallel_to_aec(env)
@@ -48,7 +48,7 @@ def test_performance_benchmark():
 
 def test_jitted_performance_benchmark():
     # Requires manual inspection
-    updater = BoardUpdater(11, 11, 4, True)
+    updater = RotatingBoardUpdater(11, 11, 4, True)
     updater.jitted_board([], []).block_until_ready()
     game = PythonGameState(updater=updater)
     env = MultiSnakeEnv(game)
@@ -57,7 +57,7 @@ def test_jitted_performance_benchmark():
 
 
 def test_profile_performance():
-    updater = BoardUpdater(11, 11, 4, True)
+    updater = RotatingBoardUpdater(11, 11, 4, True)
     game = PythonGameState(updater=updater)
     env = MultiSnakeEnv(game)
     aec_env = parallel_to_aec(env)

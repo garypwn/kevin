@@ -7,7 +7,7 @@ import coax
 import optax
 from coax.value_losses import mse
 
-from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
+from kevin.src.engine.python_engine import RotatingBoardUpdater, PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.model.model import Model, residual_body
 
@@ -20,7 +20,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 class PPOModel:
     name = 'standard_4p_ppo'
 
-    updater = BoardUpdater(11, 11, 4)
+    updater = RotatingBoardUpdater(11, 11, 4)
     game = PythonGameState(updater=updater)
     env = RewindingEnv(game)
     env.fancy_render = True

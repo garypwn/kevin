@@ -1,10 +1,10 @@
-from kevin.src.engine.board_updater import BoardUpdater
+from kevin.src.engine.board_updater import RotatingBoardUpdater
 from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.environment.snake_environment import MultiSnakeEnv
 import jax.numpy as jnp
 
-updater = BoardUpdater(11, 11)
+updater = RotatingBoardUpdater(11, 11)
 
 
 def make_boards():

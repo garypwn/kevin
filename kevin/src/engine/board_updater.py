@@ -4,6 +4,67 @@ import jax
 import jax.numpy as jnp
 
 
+def translate_action_fixed(action: int, body: list[tuple[int, int]]) -> tuple[int, int]:
+    match action:
+        case 0:
+            target = (0, 1)
+        case 1:
+            target = (1, 0)
+        case 2:
+            target = (0, -1)
+        case 3:
+            target = (-1, 0)
+        case _:
+            raise ValueError
+
+    return target
+
+
+def translate_action_rotating(action: int, body: list[tuple[int, int]]) -> tuple[int, int]:
+    x, y = body[0]  # head
+    hx, hy = (0, 1)  # Heading
+    if body[0] != body[1]:
+        x1, y1 = body[1]
+        hx, hy = (x - x1, y - y1)
+
+    match action:
+        case 1:  # Forward
+            target = (x + hx, y + hy)
+        case 0:  # Left
+            target = (x - hy, y + hx)
+        case 2:  # Right
+            target = (x + hy, y - hx)
+        case _:
+            raise ValueError
+
+    return target
+
+
+def get_heading(body: list[tuple[int, int]]) -> int:
+    if len(body) < 2:
+        return 0
+
+    head = body[0]
+    x0, y0 = head
+    x1, y1 = body[1]
+    heading = (x0 - x1, y0 - y1)
+    match heading:
+        case (0, 0):
+            d = 0
+        case (0, 1):
+            d = 0
+        case (1, 0):
+            d = 1
+        case (0, -1):
+            d = 2
+        case (-1, 0):
+            d = 3
+        case _:
+            raise ValueError
+
+    return d
+
+
 class BoardUpdater:
     r"""
     A function that computes the array representation of a board. A callable is constructed with a fixed
@@ -20,6 +81,8 @@ class BoardUpdater:
     height: Final[int]
     batch_size: Final[int]
     viewport_size: Final[int]
+
+    get_target: Callable[[int, list[tuple[int, int]]], tuple[int, int]]
 
     _snake_placer: Final[Callable[[list[tuple[int, int]], int, int, jax.Array], jax.Array]]
 
@@ -90,7 +153,58 @@ class BoardUpdater:
 
         return board
 
-    snake_pov: Final[Callable[[tuple[int, int], int, jax.Array], jax.Array]]
+    def __init__(self, width, height, batch_size=5, jit_enabled=True, donate=True):
+
+        self.width = width
+        self.height = height
+        self.batch_size = batch_size
+        self.viewport_size = 1 + 2 * max(width, height)  # Guaranteed to be odd
+
+        if jit_enabled:
+            if donate:
+                self._snake_placer = jax.jit(self._place_snake, donate_argnums=3, static_argnums=2)
+                self._food_placer = jax.jit(self._place_food, donate_argnums=2, static_argnums=1)
+                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
+                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
+            else:
+                self._snake_placer = jax.jit(self._place_snake, static_argnums=2)
+                self._food_placer = jax.jit(self._place_food, static_argnums=1)
+                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
+                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
+
+        else:
+            self._snake_placer = self._place_snake
+            self._food_placer = self._place_food
+            self._board_pov_maker = self._create_pov
+            self._walls_pov_maker = self._create_walls
+
+        self.get_target = translate_action_fixed
+
+
+class RotatingBoardUpdater(BoardUpdater):
+
+    def __init__(self, width, height, batch_size=5, jit_enabled=True, donate=True):
+        super().__init__(width, height, batch_size=batch_size, jit_enabled=jit_enabled, donate=donate)
+
+        if jit_enabled:
+            if donate:
+                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
+                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
+            else:
+                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
+                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
+
+        else:
+            self._board_pov_maker = self._create_pov
+            self._walls_pov_maker = self._create_walls
+
+        self.get_target = translate_action_rotating
+
+    def snake_pov(self, body, board):
+        facing = get_heading(body)
+        return self._board_pov_maker(body[0], facing, board)
+
+    _board_pov_maker: Final[Callable[[tuple[int, int], int, jax.Array], jax.Array]]
 
     def _create_pov(self, head, facing, board):
         """
@@ -105,7 +219,11 @@ class BoardUpdater:
 
         return jnp.rot90(donate_board, facing)
 
-    walls_pov: Final[Callable[[tuple[int, int], int], jax.Array]]
+    _walls_pov_maker: Final[Callable[[tuple[int, int], int], jax.Array]]
+
+    def walls_pov(self, body):
+        facing = get_heading(body)
+        return self._walls_pov_maker(body[0], facing)
 
     def _create_walls(self, head, facing):
         """
@@ -121,27 +239,3 @@ class BoardUpdater:
         donate_board = jax.lax.dynamic_update_slice(donate_board, board, (o_x, o_y))
 
         return jnp.rot90(donate_board, facing)
-
-    def __init__(self, width, height, batch_size=5, jit_enabled=True, donate=True):
-
-        self.width = width
-        self.height = height
-        self.batch_size = batch_size
-        self.viewport_size = 1 + 2 * max(width, height)  # Guaranteed to be odd
-
-        if jit_enabled:
-            if donate:
-                self._snake_placer = jax.jit(self._place_snake, donate_argnums=3, static_argnums=2)
-                self._food_placer = jax.jit(self._place_food, donate_argnums=2, static_argnums=1)
-                self.snake_pov = jax.jit(self._create_pov, static_argnums=1)
-                self.walls_pov = jax.jit(self._create_walls, static_argnums=1)
-            else:
-                self._snake_placer = jax.jit(self._place_snake, static_argnums=2)
-                self._food_placer = jax.jit(self._place_food, static_argnums=1)
-                self.snake_pov = jax.jit(self._create_pov, static_argnums=1)
-                self.walls_pov = jax.jit(self._create_walls, static_argnums=1)
-        else:
-            self._snake_placer = self._place_snake
-            self._food_placer = self._place_food
-            self.snake_pov = self._create_pov
-            self.walls_pov = self._create_walls

@@ -10,9 +10,8 @@ import jax.numpy as jnp
 import jax.random as jrand
 import numpy as np
 
-from kevin.src.engine.board_updater import BoardUpdater
+from kevin.src.engine.board_updater import RotatingBoardUpdater
 from kevin.src.engine.snake_engine import GameState
-
 
 class Snake:
 
@@ -34,7 +33,7 @@ class PythonGameState(GameState):
     width: Final[int] = 11
 
     #  Board updater fn
-    updater: BoardUpdater
+    updater: RotatingBoardUpdater
 
     #  State
     turn_num: int = 0
@@ -105,7 +104,7 @@ class PythonGameState(GameState):
 
         #  Set up the updater. This allows us to pre-jit the updater and use it in all games.
         if updater is None:
-            self.updater = BoardUpdater(self.width, self.height)
+            self.updater = RotatingBoardUpdater(self.width, self.height)
         else:
             self.updater = updater
 
@@ -172,26 +171,9 @@ class PythonGameState(GameState):
                 continue
 
             # Figure out heading
-            old_head = snake.body[0]
-            x0, y0 = old_head
-            hx, hy = (0, 1)  # Heading
-            if snake.body[0] != snake.body[1]:
-                x1, y1 = snake.body[1]
-                hx, hy = (x0 - x1, y0 - y1)
-
-            # Compute next move
-            match actions[name]:
-                case 1:  # Forward
-                    target = (x0 + hx, y0 + hy)
-                case 0:  # Left
-                    target = (x0 - hy, y0 + hx)
-                case 2:  # Right
-                    target = (x0 + hy, y0 - hx)
-                case _:
-                    raise ValueError
+            target = self.updater.get_target(actions[name], snake.body)
 
             #  Move the head and tail
-
             snake.body.insert(0, target)
             snake.body.pop()
 
@@ -297,27 +279,9 @@ class PythonGameState(GameState):
         else:
             snake = self.snakes[snake_id]
 
-        head = snake[0]
-        x0, y0 = head
-        x1, y1 = snake[1]
-        heading = (x0 - x1, y0 - y1)
-        match heading:
-            case (0, 0):
-                d = 0
-            case (0, 1):
-                d = 0
-            case (1, 0):
-                d = 1
-            case (0, -1):
-                d = 2
-            case (-1, 0):
-                d = 3
-            case _:
-                raise ValueError
-
-        walls = self.updater.walls_pov(head, d)
-        food = self.updater.snake_pov(head, d, self.food_board)
-        povs = [self.updater.snake_pov(head, d, board)
+        walls = self.updater.walls_pov(snake.body)
+        food = self.updater.snake_pov(snake.body, self.food_board)
+        povs = [self.updater.snake_pov(snake.body, board)
                 for board in ordered_snake_boards]
 
         boards = jnp.stack([povs[0], walls, food] + povs[1:], 0)
