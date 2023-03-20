@@ -23,7 +23,7 @@ class PPOModel:
     game = PythonGameState(updater=updater)
     env = RewindingEnv(game)
     env.fancy_render = True
-    gym_env = coax.wrappers.TrainMonitor(env.dummy_gym_environment, tensorboard_dir=".train_log")
+    gym_env = env.dummy_gym_environment
 
     def __init__(self):
         self.model = None

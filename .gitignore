@@ -26,5 +26,8 @@ build/
 # Checkpoints
 .checkpoint
 
+# Logs
+.train_log
+
 # IDE
 .idea
