@@ -6,15 +6,17 @@ import jax.numpy as jnp
 
 
 def translate_action_fixed(action: int, body: list[tuple[int, int]]) -> tuple[int, int]:
+    x, y = body[0]
+
     match action:
         case 0:
-            target = (0, 1)
+            target = (x + 0, y + 1)
         case 1:
-            target = (1, 0)
+            target = (x + 1, y + 0)
         case 2:
-            target = (0, -1)
+            target = (x + 0, y - 1)
         case 3:
-            target = (-1, 0)
+            target = (x - 1, y + 0)
         case _:
             raise ValueError
 
@@ -202,7 +204,7 @@ class FixedBoardUpdater(BoardUpdater):
             self._board_pov_maker = self._create_pov
             self._walls_pov_maker = self._create_walls
 
-        self.get_target = translate_action_rotating
+        self.get_target = translate_action_fixed
 
     def snake_pov(self, body, board):
         return self._board_pov_maker(body[0], board)
