@@ -1,4 +1,6 @@
+import cProfile
 import os
+import pstats
 import random
 from datetime import datetime
 from time import sleep
@@ -7,6 +9,7 @@ import coax
 import optax
 from coax.value_losses import mse
 
+from kevin.src.engine.board_updater import FixedBoardUpdater
 from kevin.src.engine.python_engine import RotatingBoardUpdater, PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.model.model import Model, residual_body
@@ -20,7 +23,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 class PPOModel:
     name = 'standard_4p_ppo'
 
-    updater = RotatingBoardUpdater(11, 11, 4)
+    updater = FixedBoardUpdater(11, 11, 4)
     game = PythonGameState(updater=updater)
     env = RewindingEnv(game)
     env.fancy_render = True
@@ -74,8 +77,8 @@ class PPOModel:
 
     verbose = False
 
-    def learn(self):
-        for i in range(10000000):
+    def learn(self, loops):
+        for i in range(loops):
 
             self.game_num += 1
 
@@ -156,7 +159,17 @@ class PPOModel:
             # Get actions
             actions = {}
             for agent in self.env.agents:
-                actions[agent] = self.pi_behavior.mode(obs[agent])
+                action = self.pi_behavior.mode(obs[agent])
+                if self.env.game.meta_factory.all_safe_moves[agent][action] == 0:
+                    for i in range(4):
+                        action = self.pi_behavior(obs[agent])
+                        if self.env.game.meta_factory.all_safe_moves[agent][action] == 8:
+                            break
+                        if i == 3:
+                            print("Warning: Agent {} has tried to make an unsafe move 4 times. Hopefully it knows "
+                                  "something we don't.".format(agent))
+
+                actions[agent] = action
 
             live_agents = self.env.agents[:]
             obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
@@ -186,11 +199,27 @@ class PPOModel:
          self.buffer, self.pi_regularizer, self.simple_td,
          self.ppo_clip, self.model) = coax.utils.load(path)
 
+    def profile(self):
+        profiler = cProfile.Profile()
+
+        # Play a few games to warm up
+        self.learn(10)
+
+        print("Turning on profiler...")
+        profiler.enable()
+        self.learn(50)
+        profiler.disable()
+        now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+        stats = pstats.Stats(profiler)
+        stats.dump_stats("./.profiler/{}.prof".format(now))
+        print("200 games complete. Turning off profiler.")
+
 
 m = PPOModel()
-if False:
+if True:
     m.build()
 else:
     m.build_from_file(".checkpoint/standard_4p_ppo_epoch_15_2023-03-19_15:09:18.pkl.lz4")
 
-m.learn()
+m.profile()
+m.learn(10000000)

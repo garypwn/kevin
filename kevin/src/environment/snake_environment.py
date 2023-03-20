@@ -59,20 +59,8 @@ class MultiSnakeEnv(ParallelEnv):
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent) -> spaces.Space:
         viewport = 1 + 2 * max(self.game.width, self.game.height)
-        return spaces.Dict(
-            {
-                "turn": spaces.Box(low=0, high=jnp.inf, dtype=jnp.int16),  # Limit 32k turns... should be enough.
-
-                "snakes": spaces.Box(low=np.zeros(self.game.player_count),
-                                     high=np.full(self.game.player_count, 100), dtype=jnp.int16),
-
-                #  Board dimensions
-                "boards": spaces.Box(0, self.game.width * self.game.height,
-
-                                     # One layer / snake, hazard, food
-                                     shape=[self.game.player_count + 2, viewport, viewport], dtype=jnp.int16),
-            }
-        )
+        return spaces.Box(0, self.game.width * self.game.height,
+                          shape=[self.game.player_count + 3, viewport, viewport], dtype=jnp.int16)
 
     def reset(self, seed: Optional[int] = None, return_info: bool = False, options: Optional[dict] = None) -> ObsDict:
 

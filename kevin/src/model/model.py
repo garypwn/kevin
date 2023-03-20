@@ -48,7 +48,7 @@ class Model:
 
 
 def residual_body(x, is_training):
-    boards = jnp.float32(x["boards"])
+    boards = jnp.float32(x)
 
     class ConvNorm:
         def __init__(self, shape):

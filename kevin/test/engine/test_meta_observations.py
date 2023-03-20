@@ -1,6 +1,5 @@
 from kevin.src.engine.board_updater import RotatingBoardUpdater, FixedBoardUpdater
-from kevin.src.engine.meta_observations import MetaObservationFactory
-from kevin.src.engine.python_engine import PythonGameState
+from kevin.src.engine.python_engine import PythonGameState, MetaObservationFactory
 from kevin.src.environment.snake_environment import MultiSnakeEnv
 
 updater = FixedBoardUpdater(11, 11)
