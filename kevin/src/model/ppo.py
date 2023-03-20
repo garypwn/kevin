@@ -8,7 +8,6 @@ from coax.value_losses import mse
 
 from kevin.src.engine.python_engine import BoardUpdater, PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
-from kevin.src.environment.snake_environment import DummyGymEnv
 from kevin.src.model.model import Model, residual_body
 
 # set some env vars
@@ -24,6 +23,7 @@ class PPOModel:
     game = PythonGameState(updater=updater)
     env = RewindingEnv(game)
     env.fancy_render = True
+    gym_env = coax.wrappers.TrainMonitor(env.dummy_gym_environment, tensorboard_dir=".train_log")
 
     def __init__(self):
         self.model = None
@@ -39,16 +39,15 @@ class PPOModel:
 
     def build(self):
 
-        gym_env = DummyGymEnv(self.env)
-        self.model = Model(residual_body, gym_env.action_space)
+        self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
         optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
         optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
 
         # q = coax.Q(func_q, gym_env)
-        self.v = coax.V(self.model.v, gym_env)
-        self.pi = coax.Policy(self.model.pi_logits, gym_env)
+        self.v = coax.V(self.model.v, self.gym_env)
+        self.pi = coax.Policy(self.model.pi_logits, self.gym_env)
 
         self.pi_behavior = self.pi.copy()
         self.v_targ = self.v.copy()
@@ -77,6 +76,8 @@ class PPOModel:
 
             # Episode start
             obs = self.env.reset(i)
+            self.gym_env.reset()  # This should print logged metrics
+
             cum_reward = {agent: 0. for agent in self.env.possible_agents}
             if self.verbose:
                 print(self.env.render())
@@ -91,6 +92,9 @@ class PPOModel:
 
                 live_agents = self.env.agents[:]
                 obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
+
+                # Record metrics
+                self.gym_env.step(actions[live_agents[0]])
 
                 if self.verbose:
                     print(self.env.render())
@@ -117,6 +121,8 @@ class PPOModel:
                         transition_batch = self.buffer.sample(batch_size=32)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
+                        self.gym_env.record_metrics(metrics_v)
+                        self.gym_env.record_metrics(metrics_pi)
 
                     self.buffer.clear()
                     self.pi_behavior.soft_update(self.pi, tau=0.1)

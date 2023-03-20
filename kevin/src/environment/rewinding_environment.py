@@ -9,7 +9,7 @@ from kevin.src.environment.snake_environment import MultiSnakeEnv
 
 class RewindingEnv(MultiSnakeEnv):
     stale_at = 7
-    stale_counter = 0
+    stale_counter = 0.
     state_pq: list[GameState] = []
 
     def __init__(self, eng: GameState):
@@ -25,7 +25,7 @@ class RewindingEnv(MultiSnakeEnv):
 
         # After several rewinds, we say the game is stale and start a new one.
         if self.stale_counter >= self.stale_at:
-            self.stale_counter = 0
+            self.stale_counter = 0.
             self.state_pq = []
 
         # If there are saved rewinds in the stack, we can use one of those
@@ -36,7 +36,7 @@ class RewindingEnv(MultiSnakeEnv):
                 key=lambda game: game.turn_num * sum([len(snake.body) for _, snake in game.snakes.items()]),
                 reverse=True)
             self.game = self.state_pq.pop()
-            self.stale_counter += 1
+            self.stale_counter += 0.99 ** self.game.turn_num  # Late game results in less staleness
 
         else:
             self.game = self.game.reset(options)
@@ -44,11 +44,15 @@ class RewindingEnv(MultiSnakeEnv):
         self.agents = [name for name, _ in self.game.snakes.items()]
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
+
+        snake_n = self.agents[0]
         if not return_info:
+            self.temp_reset_result = observations[snake_n]
             return observations
 
         else:
             infos = {agent: self.game.get_info(agent) for agent in self.agents}
+            self.temp_reset_result = infos[snake_n]
             return infos
 
     def step(self, actions: ActionDict) -> Tuple[
@@ -70,6 +74,10 @@ class RewindingEnv(MultiSnakeEnv):
         terminations = {agent: self.game.get_terminated(agent) for agent in self.agents}
         truncations = {agent: self.game.get_truncated(agent) for agent in self.agents}
         infos = {agent: self.game.get_info(agent) for agent in self.agents}
+
+        snake_n = self.agents[0]
+        self.temp_step_result = (observations[snake_n], rewards[snake_n], terminations[snake_n],
+                                 truncations[snake_n], infos[snake_n])
 
         # Remove terminated or truncated agents? This is not well-defined by spec
         for agent in self.agents[:]:

@@ -1,5 +1,5 @@
 import functools
-from typing import Optional, Tuple, Dict, List, SupportsFloat, Any
+from typing import Optional, Tuple, Dict, List, SupportsFloat, Any, Callable
 
 from gymnasium import spaces, Env, Space
 from gymnasium.core import RenderFrame, ActType, ObsType
@@ -30,6 +30,17 @@ class MultiSnakeEnv(ParallelEnv):
 
     metadata = {"render_modes": [], "name": "battlesnake_v0"}
 
+    temp_step_result = None
+    temp_reset_result = None
+
+    def get_temp_step_result(self):
+        return self.temp_step_result
+
+    def get_temp_reset_result(self):
+        return self.temp_reset_result
+
+    dummy_gym_environment: Env
+
     def __init__(self, eng: GameState):
         self.game = eng
 
@@ -38,6 +49,9 @@ class MultiSnakeEnv(ParallelEnv):
 
         self.action_spaces = {agent: spaces.Discrete(3) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
+
+        self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"],
+                                                 self.get_temp_step_result, self.get_temp_reset_result)
 
     def action_space(self, agent):
         return spaces.Discrete(3)
@@ -72,11 +86,15 @@ class MultiSnakeEnv(ParallelEnv):
         self.agents = ["snake_" + str(r) for r in range(self.game.player_count)]
 
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
+
+        snake_n = self.agents[0]
         if not return_info:
+            self.temp_reset_result = observations[snake_n]
             return observations
 
         else:
             infos = {agent: self.game.get_info(agent) for agent in self.agents}
+            self.temp_reset_result = infos[snake_n]
             return infos
 
     def seed(self, seed=None):
@@ -94,6 +112,10 @@ class MultiSnakeEnv(ParallelEnv):
         terminations = {agent: self.game.get_terminated(agent) for agent in self.agents}
         truncations = {agent: self.game.get_truncated(agent) for agent in self.agents}
         infos = {agent: self.game.get_info(agent) for agent in self.agents}
+
+        snake_n = self.agents[0]
+        self.temp_step_result = (observations[snake_n], rewards[snake_n], terminations[snake_n],
+                                 truncations[snake_n], infos[snake_n])
 
         # Remove terminated or truncated agents? This is not well-defined by spec
         for agent in self.agents[:]:
@@ -120,13 +142,30 @@ class MultiSnakeEnv(ParallelEnv):
 
 
 class DummyGymEnv(Env):
+    action_space: Space
+    observation_space: Space
+    step_fn: Callable
+    reset_fn: Callable
+
     def step(self, action: ActType) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
-        raise NotImplementedError
+        """
+        To record metrics properly, this must be called after the base environment
+        """
+
+        return self.step_fn()
+
+    def reset(self, *, seed: int | None = None,
+              options: dict[str, Any] | None = None, ) -> tuple[ObsType, dict[str, Any]]:
+        """
+        To record metrics properly, this must be called after the base environment
+        """
+
+        return self.reset_fn()
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
         raise NotImplementedError
 
-    def __init__(self, env):
+    def __init__(self, action_space, observation_space, step_fn, reset_fn):
         r"""
         Coax (and other RL libraries) often take a gym environment to validate action and observation spaces.
         Since the spaces are the same for each snake, we can create a dummy gym environment
@@ -135,8 +174,7 @@ class DummyGymEnv(Env):
         Note that this is not a real gym environment and does not have any methods implemented.
         """
 
-        self.action_space = env.action_space("snake_0")
-        self.observation_space = env.observation_space("snake_0")
-
-    action_space: Space
-    observation_space: Space
+        self.action_space = action_space
+        self.observation_space = observation_space
+        self.step_fn = step_fn
+        self.reset_fn = reset_fn
