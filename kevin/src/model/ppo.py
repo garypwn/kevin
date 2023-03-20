@@ -29,6 +29,11 @@ class PPOModel:
     env.fancy_render = True
     gym_env = env.dummy_gym_environment
 
+    ppo_clip: coax.policy_objectives.PPOClip | None
+    simple_td: coax.td_learning.SimpleTD | None
+
+    smooth_update_rate = 0.9
+
     def __init__(self):
         self.model = None
         self.pi_regularizer = None
@@ -46,8 +51,8 @@ class PPOModel:
         self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
-        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
-        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.0001))
+        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.75))
+        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.75))
 
         # q = coax.Q(func_q, gym_env)
         self.v = coax.V(self.model.v, self.gym_env)
@@ -60,13 +65,10 @@ class PPOModel:
         self.tracers = {agent: coax.reward_tracing.NStep(n=9, gamma=0.9) for agent in self.env.possible_agents}
 
         # We just need one buffer ...?
-        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=2048)
-
-        # Regularizer
-        self.pi_regularizer = coax.regularizers.EntropyRegularizer(self.pi, 0.001)
+        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=4096)
 
         # Updaters
-        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi, regularizer=self.pi_regularizer)
+        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi)
         self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
 
     epoch_num = 0
@@ -74,11 +76,31 @@ class PPOModel:
 
     new_epoch = True
     checkpoint_period = 15
+    render_period = 25
 
     verbose = False
 
     def learn(self, loops):
         for i in range(loops):
+
+            # Anneal learning rate
+            if self.epoch_num == 4:
+                self.change_learning_rate(0.1)
+                self.smooth_update_rate = 0.7
+
+            if self.epoch_num == 15:
+                self.change_learning_rate(0.01)
+                self.smooth_update_rate = 0.35
+
+            if self.epoch_num == 30:
+                self.change_learning_rate(0.001)
+                self.smooth_update_rate = 0.1
+
+            if self.epoch_num == 50:
+                self.change_learning_rate(0.0005)
+
+            if self.epoch_num == 100:
+                self.change_learning_rate(0.0001)
 
             self.game_num += 1
 
@@ -87,7 +109,12 @@ class PPOModel:
             self.gym_env.reset()  # This should print logged metrics
 
             cum_reward = {agent: 0. for agent in self.env.possible_agents}
+
+            if self.render_period > 0 and i % self.render_period == -1 % self.render_period:
+                self.verbose = True
+
             if self.verbose:
+                print("===== Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
                 print(self.env.render())
 
             while len(self.env.agents) > 0:
@@ -106,7 +133,6 @@ class PPOModel:
 
                 if self.verbose:
                     print(self.env.render())
-                    sleep(0.75)
 
                 # Trace rewards
                 for agent in live_agents:
@@ -131,8 +157,8 @@ class PPOModel:
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
 
                     self.buffer.clear()
-                    self.pi_behavior.soft_update(self.pi, tau=0.1)
-                    self.v_targ.soft_update(self.v, tau=0.1)
+                    self.pi_behavior.soft_update(self.pi, tau=self.smooth_update_rate)
+                    self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
 
                     self.new_epoch = True
                     self.epoch_num += 1
@@ -140,6 +166,7 @@ class PPOModel:
                 obs = obs_next
             if self.verbose:
                 print("===== End Game {}. Epoch {} =========================".format(i, self.epoch_num))
+                self.verbose = False
 
             if self.new_epoch:
                 self.new_epoch = False
@@ -213,6 +240,13 @@ class PPOModel:
         stats = pstats.Stats(profiler)
         stats.dump_stats("./.profiler/{}.prof".format(now))
         print("200 games complete. Turning off profiler.")
+
+    def change_learning_rate(self, rate_pi, rate_v=None):
+        if rate_v is None:
+            rate_v = rate_pi
+
+        self.ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate_pi))
+        self.simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate_v))
 
 
 m = PPOModel()

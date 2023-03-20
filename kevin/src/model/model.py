@@ -1,10 +1,9 @@
 from typing import Callable
 
-import jax
-from gymnasium import spaces
 import haiku as hk
-import jax.numpy as jnp
 import jax.nn as jnn
+import jax.numpy as jnp
+from gymnasium import spaces
 
 
 class Model:
@@ -16,22 +15,26 @@ class Model:
         self.action_space = space
 
     def pi_logits(self, S, is_training):
-
         logits = hk.Sequential([
             jnn.relu,
             hk.Flatten(),
-            hk.Linear(self.action_space.n),
+            hk.Linear(self.action_space.n, w_init=hk.initializers.RandomUniform(),
+                      b_init=hk.initializers.RandomUniform()),
         ])
         result = self.body(S, is_training)
-        conv = hk.Conv2D(2, 1, data_format="NHWDC")(result)
-        norm = hk.BatchNorm(True, True, 0.999, data_format="NHWDC")(conv, is_training)
+        conv = hk.Conv2D(2, 1, data_format="NDWHC", w_init=hk.initializers.RandomUniform(),
+                         b_init=hk.initializers.RandomUniform())(result)
+        norm = hk.BatchNorm(True, True, 0.999, data_format="NDWHC")(conv, is_training)
         return {'logits': logits(norm)}
 
     def v(self, S, is_training):
         value = hk.Sequential([
-            hk.Linear(256), jnn.relu,
+            hk.Linear(256, w_init=hk.initializers.RandomUniform(),
+                      b_init=hk.initializers.RandomUniform()),
+            jnn.relu,
             hk.Flatten(),
-            hk.Linear(1, w_init=jnp.zeros),
+            hk.Linear(1, w_init=hk.initializers.RandomUniform(),
+                      b_init=hk.initializers.RandomUniform()),
             jnp.ravel, jnp.tanh
         ])
         result = self.body(S, is_training)
@@ -55,8 +58,9 @@ def residual_body(x, is_training):
             self.shape = [shape, shape]
 
         def __call__(self, s):
-            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="NHWDC")
-            conv2d = hk.Conv2D(256, self.shape, data_format="NHWDC")
+            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="NDWHC")
+            conv2d = hk.Conv2D(256, self.shape, data_format="NDWHC", w_init=hk.initializers.RandomUniform(),
+                               b_init=hk.initializers.RandomUniform(), )
             return batch_norm(conv2d(s), is_training)
 
     class ResCore:

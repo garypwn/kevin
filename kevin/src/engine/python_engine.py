@@ -576,16 +576,15 @@ class MetaObservationFactory:
             for i in ordering:
                 name = "snake_{}".format(i)
 
-                if name not in self.alive_snakes:
-                    break
+                line = [turn] * 3
 
-                line = [turn] * 3 + [self.game.snakes[name].health] * 4
-                for move in self.all_safe_moves[name]:
-                    line += [move] * 4
+                if name in self.alive_snakes:
+                    line += [self.game.snakes[name].health] * 4
+                    for move in self.all_safe_moves[name]:
+                        line += [move] * 4
 
-                lines = jnp.array([line], dtype=jnp.int16)
-                for j in range(5):
-                    obs = jax.lax.dynamic_update_slice(obs, lines, (5 * i + j, 0))
+                lines = jnp.array([line]*5, dtype=jnp.int16)
+                obs = jax.lax.dynamic_update_slice(obs, lines, (5 * i, 0))
 
             return obs
 

@@ -27,7 +27,14 @@ def compare_obs(env1, env2):
     print(env2.render())
 
     for agent in env1.agents:
-        o, on = env1.game.get_observation(agent)["boards"], env2.game.get_observation(agent)["boards"]
+        o, on = env1.game.get_observation(agent), env2.game.get_observation(agent)
+        for board in o:
+            print(board, "\n")
+        print("\n\n")
+        for board in on:
+            print(board, "\n")
+
+        print("Obs 1 shape: {}. Obs 2 shape: {}".format(o.shape, on.shape))
         assert jnp.array_equal(o, on)
 
 
@@ -49,8 +56,8 @@ def test_same_observation_after_moving():
 
 def test_same_observation_when_spawning_rewind():
     env1, env2 = make_boards()
-    env1.game.turn_num = 5
-    env2.game.turn_num = 5
+    env1.game.turn_num = 15
+    env2.game.turn_num = 15
 
     # Kill some snakes
     env1.step({"snake_{}".format(i): 1 for i in range(4)})
@@ -64,8 +71,8 @@ def test_same_observation_when_spawning_rewind():
 
 def test_same_observation_after_rewind():
     env1, env2 = make_boards()
-    env1.game.turn_num = 5
-    env2.game.turn_num = 5
+    env1.game.turn_num = 15
+    env2.game.turn_num = 15
 
     # Kill some snakes
     env1.step({"snake_{}".format(i): 1 for i in range(4)})

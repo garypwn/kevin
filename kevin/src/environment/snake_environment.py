@@ -54,7 +54,7 @@ class MultiSnakeEnv(ParallelEnv):
                                                  self.get_temp_step_result, self.get_temp_reset_result)
 
     def action_space(self, agent):
-        return spaces.Discrete(3)
+        return spaces.Discrete(4)
 
     @functools.lru_cache(maxsize=None)
     def observation_space(self, agent) -> spaces.Space:
