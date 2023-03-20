@@ -1,4 +1,5 @@
 import os
+import random
 from datetime import datetime
 from time import sleep
 
@@ -66,6 +67,8 @@ class PPOModel:
         self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
 
     epoch_num = 0
+    game_num = 0
+
     new_epoch = True
     checkpoint_period = 15
 
@@ -73,6 +76,8 @@ class PPOModel:
 
     def learn(self):
         for i in range(10000000):
+
+            self.game_num += 1
 
             # Episode start
             obs = self.env.reset(i)
@@ -121,8 +126,6 @@ class PPOModel:
                         transition_batch = self.buffer.sample(batch_size=32)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
-                        self.gym_env.record_metrics(metrics_v)
-                        self.gym_env.record_metrics(metrics_pi)
 
                     self.buffer.clear()
                     self.pi_behavior.soft_update(self.pi, tau=0.1)
@@ -137,42 +140,45 @@ class PPOModel:
 
             if self.new_epoch:
                 self.new_epoch = False
+                self.output_mode_game()
 
-                # Flush the stack so that we don't get a stinky replay
-                self.env.state_pq = []
+    def output_mode_game(self):
 
-                print("===== Game {}. Epoch {} =========================".format(i, self.epoch_num))
-                obs = self.env.reset(i // 15)
-                print(self.env.render())
-                cum_reward = {agent: 0. for agent in self.env.possible_agents}
+        # Flush the replay stack so that we don't get a stinky replay
+        self.env.state_pq = []
 
-                while len(self.env.agents) > 0:
-                    # Get actions
-                    actions = {}
-                    for agent in self.env.agents:
-                        actions[agent] = self.pi_behavior.mode(obs[agent])
+        print("===== Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
+        obs = self.env.reset(random.randint(-1000000, 1000000))
+        print(self.env.render())
+        cum_reward = {agent: 0. for agent in self.env.possible_agents}
 
-                    live_agents = self.env.agents[:]
-                    obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
-                    for agent in live_agents:
-                        cum_reward[agent] += rewards[agent]
+        while len(self.env.agents) > 0:
+            # Get actions
+            actions = {}
+            for agent in self.env.agents:
+                actions[agent] = self.pi_behavior.mode(obs[agent])
 
-                    print(self.env.render())
-                    obs = obs_next
+            live_agents = self.env.agents[:]
+            obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
+            for agent in live_agents:
+                cum_reward[agent] += rewards[agent]
 
-                print("===== End Game {}. Epoch {} =========================".format(i, self.epoch_num))
-                print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
-                print("-----------------------------------------------------")
+            print(self.env.render())
+            obs = obs_next
 
-                if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
-                    print("======Checkpoint {}============================".format(self.epoch_num))
-                    print("-----------------------------------------------")
-                    now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
-                    coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
-                                     self.buffer, self.pi_regularizer, self.simple_td,
-                                     self.ppo_clip, self.model],
+        print("===== End Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
+        print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
+        print("-----------------------------------------------------")
 
-                                    ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
+        if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
+            print("======Checkpoint {}============================".format(self.epoch_num))
+            print("-----------------------------------------------")
+            now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+            coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
+                             self.buffer, self.pi_regularizer, self.simple_td,
+                             self.ppo_clip, self.model],
+
+                            ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
 
     def build_from_file(self, path):
 
