@@ -1,10 +1,10 @@
 import jax.numpy as jnp
 
-from kevin.src.engine.board_updater import RotatingBoardUpdater
+from kevin.src.engine.board_updater import RotatingBoardUpdater, FixedBoardUpdater
 
 test_board = jnp.full([5, 5], 3, dtype=jnp.int16)
 
-updater = RotatingBoardUpdater(5, 5, donate=False)
+updater = FixedBoardUpdater(5, 5, donate=False)
 
 test_viewport = jnp.zeros([updater.viewport_size, updater.viewport_size], dtype=jnp.int16)
 
@@ -16,7 +16,7 @@ def test_pov():
 
 def test_walls():
     print(test_board)
-    print(updater.walls_pov([(0, 0), (-1, 0)]))
+    print(updater.walls_pov([(4, 4), (-1, 0)]))
 
 
 def test_place_snake():

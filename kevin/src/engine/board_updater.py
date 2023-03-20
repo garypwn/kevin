@@ -1,3 +1,4 @@
+from abc import abstractmethod, ABC
 from typing import Final, Callable
 
 import jax
@@ -65,7 +66,7 @@ def get_heading(body: list[tuple[int, int]]) -> int:
     return d
 
 
-class BoardUpdater:
+class BoardUpdater(ABC):
     r"""
     A function that computes the array representation of a board. A callable is constructed with a fixed
     board height and width, and a fixed max number of players.
@@ -153,6 +154,14 @@ class BoardUpdater:
 
         return board
 
+    @abstractmethod
+    def snake_pov(self, body, board):
+        pass
+
+    @abstractmethod
+    def walls_pov(self, body):
+        pass
+
     def __init__(self, width, height, batch_size=5, jit_enabled=True, donate=True):
 
         self.width = width
@@ -164,21 +173,74 @@ class BoardUpdater:
             if donate:
                 self._snake_placer = jax.jit(self._place_snake, donate_argnums=3, static_argnums=2)
                 self._food_placer = jax.jit(self._place_food, donate_argnums=2, static_argnums=1)
-                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
-                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
+
             else:
                 self._snake_placer = jax.jit(self._place_snake, static_argnums=2)
                 self._food_placer = jax.jit(self._place_food, static_argnums=1)
-                self._board_pov_maker = jax.jit(self._create_pov, static_argnums=1)
-                self._walls_pov_maker = jax.jit(self._create_walls, static_argnums=1)
 
         else:
             self._snake_placer = self._place_snake
             self._food_placer = self._place_food
+
+        self.get_target = translate_action_fixed
+
+
+class FixedBoardUpdater(BoardUpdater):
+
+    def __init__(self, width, height, batch_size=5, jit_enabled=True, donate=True):
+        super().__init__(width, height, batch_size=batch_size, jit_enabled=jit_enabled, donate=donate)
+
+        if jit_enabled:
+            if donate:
+                self._board_pov_maker = jax.jit(self._create_pov)
+                self._walls_pov_maker = jax.jit(self._create_walls)
+            else:
+                self._board_pov_maker = jax.jit(self._create_pov)
+                self._walls_pov_maker = jax.jit(self._create_walls)
+
+        else:
             self._board_pov_maker = self._create_pov
             self._walls_pov_maker = self._create_walls
 
-        self.get_target = translate_action_fixed
+        self.get_target = translate_action_rotating
+
+    def snake_pov(self, body, board):
+        return self._board_pov_maker(body[0], board)
+
+    _board_pov_maker: Final[Callable[[tuple[int, int], int, jax.Array], jax.Array]]
+
+    def _create_pov(self, head, board):
+        """
+        Place the snake in the middle of the board, facing the snake's current heading
+        """
+        x, y = head
+        donate_board = jnp.zeros([self.viewport_size, self.viewport_size], dtype=jnp.int16)
+        o_x = self.width - x
+        o_y = self.height - y
+
+        donate_board = jax.lax.dynamic_update_slice(donate_board, board, (o_x, o_y))
+
+        return donate_board
+
+    _walls_pov_maker: Final[Callable[[tuple[int, int], int], jax.Array]]
+
+    def walls_pov(self, body):
+        return self._walls_pov_maker(body[0])
+
+    def _create_walls(self, head):
+        """
+        Place the snake in the middle of the board, facing the snake's current heading
+        """
+
+        board = jnp.zeros([self.width, self.height], dtype=jnp.int16)
+        donate_board = jnp.ones([self.viewport_size, self.viewport_size], dtype=jnp.int16)
+        x, y = head
+        o_x = self.width - x
+        o_y = self.height - y
+
+        donate_board = jax.lax.dynamic_update_slice(donate_board, board, (o_x, o_y))
+
+        return donate_board
 
 
 class RotatingBoardUpdater(BoardUpdater):
