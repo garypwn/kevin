@@ -1,12 +1,10 @@
 import cProfile
-import math
 import os
 import pstats
 import random
 from datetime import datetime
 
 import coax
-import jax
 import optax
 import tensorboardX
 from coax.value_losses import mse
@@ -61,12 +59,14 @@ class PPOModel:
         self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
-        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.4))
-        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.4))
+        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.01))
+        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.01))
 
         # q = coax.Q(func_q, gym_env)
         self.v = coax.V(self.model.v, self.gym_env)
         self.pi = coax.Policy(self.model.pi_logits, self.gym_env)
+
+        self.pi_regularizer = coax.regularizers.EntropyRegularizer(self.pi, beta=0.001)
 
         self.pi_behavior = self.pi.copy()
         self.v_targ = self.v.copy()
@@ -78,7 +78,7 @@ class PPOModel:
         self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=4096)
 
         # Updaters
-        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi)
+        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi, regularizer=self.pi_regularizer)
         self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
 
     Generation_num = 0
@@ -135,22 +135,19 @@ class PPOModel:
         for i in range(loops):
 
             # Anneal learning rate and other hypers
-            if self.Generation_num == 4:
-                self.change_learning_rate(0.1)
-                self.smooth_update_rate = 0.5
+            if self.Generation_num == 5:
+                self.change_learning_rate(0.005)
+                self.smooth_update_rate = 0.2
 
             if self.Generation_num == 15:
-                self.change_learning_rate(0.01)
-                self.smooth_update_rate = 0.35
+                self.change_learning_rate(0.001)
+                self.smooth_update_rate = 0.15
 
             if self.Generation_num == 30:
-                self.change_learning_rate(0.001)
+                self.change_learning_rate(0.0005)
                 self.smooth_update_rate = 0.1
 
             if self.Generation_num == 50:
-                self.change_learning_rate(0.0005)
-
-            if self.Generation_num == 100:
                 self.change_learning_rate(0.0001)
 
             self.episode_number += 1
@@ -180,7 +177,8 @@ class PPOModel:
                 self.verbose = True
 
             if self.verbose:
-                print("===== Game {}. Generation {} =========================".format(self.episode_number, self.Generation_num))
+                print("===== Game {}. Generation {} =========================".format(self.episode_number,
+                                                                                      self.Generation_num))
                 print(self.env.render())
 
             live_agents = self.env.agents[:]
@@ -218,7 +216,7 @@ class PPOModel:
                         self.buffer.add(tracer.pop())
 
                 if len(self.buffer) >= self.buffer.capacity:
-                    for _ in range(4 * self.buffer.capacity // 32):  # 4 rounds
+                    for _ in range(6 * self.buffer.capacity // 32):  # 6 passes
                         transition_batch = self.buffer.sample(batch_size=32)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)

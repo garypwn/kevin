@@ -6,3 +6,4 @@ pytest~=7.2.2
 numpy~=1.24.2
 coax~=0.1.13
 optax~=0.1.4
+tensorboardX~=2.6

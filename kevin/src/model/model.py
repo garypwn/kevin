@@ -21,8 +21,8 @@ class Model:
             hk.Linear(self.action_space.n, w_init=jnp.zeros)
         ])
         result = self.body(S, is_training)
-        conv = hk.Conv2D(2, 1, data_format="NDWHC")(result)
-        norm = hk.BatchNorm(True, True, 0.999, data_format="NDWHC")(conv, is_training)
+        conv = hk.Conv2D(2, 1, data_format="NWHC")(result)
+        norm = hk.BatchNorm(True, True, 0.999, data_format="NWHC")(conv, is_training)
         return {'logits': logits(norm)}
 
     def v(self, S, is_training):
@@ -54,8 +54,8 @@ def residual_body(x, is_training):
             self.shape = [shape, shape]
 
         def __call__(self, s):
-            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="NDWHC")
-            conv2d = hk.Conv2D(256, self.shape, data_format="NDWHC")
+            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="NWHC")
+            conv2d = hk.Conv2D(256, self.shape, data_format="NWHC")
             return batch_norm(conv2d(s), is_training)
 
     class ResCore:
@@ -72,6 +72,7 @@ def residual_body(x, is_training):
             return jnp.add(s, convoluted(s))
 
     conv = hk.Sequential([
+        hk.Reshape([-1, 23]),  # Concatenate stacked feature maps
         ConvNorm(3), jnn.relu,
         ResCore(3), jnn.relu,
         ResCore(3), jnn.relu,
