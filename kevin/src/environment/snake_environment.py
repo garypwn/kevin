@@ -47,7 +47,7 @@ class MultiSnakeEnv(ParallelEnv):
         self.possible_agents = ["snake_" + str(r) for r in range(eng.player_count)]
         self.reset()
 
-        self.action_spaces = {agent: spaces.Discrete(3) for agent in self.possible_agents}
+        self.action_spaces = {agent: self.action_space(agent) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
 
         self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"],

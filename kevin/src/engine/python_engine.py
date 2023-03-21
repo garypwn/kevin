@@ -91,7 +91,7 @@ class PythonGameState(GameState):
                 break
         return x, y
 
-    def __init__(self, seed: int | None = None, updater=None):
+    def __init__(self, seed: int | None = None, updater=None, fresh=True):
         r"""
         Initialize the game with a random seed
         """
@@ -112,7 +112,8 @@ class PythonGameState(GameState):
         self.snake_boards = {}
         self.food_board = None
 
-        self._spawn_snakes_and_food()
+        if fresh:
+            self._spawn_snakes_and_food()
 
         self.replay_flag = False
         self._internal_replay_flag = False
@@ -120,8 +121,9 @@ class PythonGameState(GameState):
 
     def full_copy(self):
 
-        new = PythonGameState(self.rng_seed, self.updater)
+        new = PythonGameState(self.rng_seed, self.updater, fresh=False)
         new.turn_num = self.turn_num
+        new.single_player_mode = self.single_player_mode
         new.rng_key = self.rng_key.copy()
         new.snakes = copy.deepcopy(self.snakes)
         new.dead_snakes = copy.deepcopy(self.dead_snakes)
@@ -139,10 +141,6 @@ class PythonGameState(GameState):
         """
         Update the board and snake list, as well as empty points
         """
-
-        for name, snake in self.snakes.items():
-            num = int(name[6:])
-            self.snakes_array[num] = snake.health
 
         for name, snake in self.snakes.items():
             self.snake_boards[name] = self.updater.snake_sub_board(snake.body, self.snake_boards.get(name))
@@ -272,7 +270,6 @@ class PythonGameState(GameState):
     def get_observation(self, snake_id: str) -> jax.Array:
 
         i = int(snake_id[6:])
-        ordered_snakes = self.snakes_array[i:] + self.snakes_array[:i]
         nums = [n for n in range(self.player_count)]
         ordering = nums[i:] + nums[:i]
 
@@ -412,7 +409,6 @@ class PythonGameState(GameState):
         self.snakes = {}
         self.dead_snakes = {}
         self.pending_moves = {}
-        self.snakes_array = [100] * self.player_count
         for i in range(self.player_count):
             name = "snake_" + str(i)
             new_snake = Snake()
@@ -573,8 +569,8 @@ class MetaObservationFactory:
             # In a 23-length row, we can 4x each for a total of 24. Turn num isn't important, so we cut that down.
             # Then for four snakes, we can make it 5 tall for a total of 20.
 
-            for i in ordering:
-                name = "snake_{}".format(i)
+            for i, snake_num in enumerate(ordering):
+                name = "snake_{}".format(snake_num)
 
                 line = [turn] * 3
 

@@ -24,14 +24,20 @@ def test_safe_targets_walls_and_body():
     env = make_board()
     game = env.game
     game.snakes["snake_0"].body = [(0, 5), (0, 4), (1, 4), (1, 5)]
+    game.snakes["snake_3"].body = [(5, 0), (5, 1), (4, 1), (4, 0)]
     game.update_board()
     print(env.render())
-    meta = MetaObservationFactory(game)
-    print(meta.possible_targets["snake_0"])
+    meta = game.meta_factory
 
+    print(meta.possible_targets["snake_0"])
     m = meta.safe_moves("snake_0")
     print(m)
     assert m == [8, 8, 0, 0]
+
+    print(meta.possible_targets["snake_3"])
+    m = meta.safe_moves("snake_3")
+    print(m)
+    assert m == [0, 8, 0, 8]
 
 
 def test_safe_targets_heads():
@@ -43,7 +49,7 @@ def test_safe_targets_heads():
     game.snakes["snake_3"].body = [(4, 3), (4, 2)]
     game.update_board()
     print(env.render())
-    meta = MetaObservationFactory(game)
+    meta = game.meta_factory
     print(meta.possible_targets["snake_0"])
 
     m = meta.safe_moves("snake_0")

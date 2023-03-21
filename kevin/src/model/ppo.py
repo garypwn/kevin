@@ -1,4 +1,5 @@
 import cProfile
+import math
 import os
 import pstats
 import random
@@ -8,6 +9,7 @@ from time import sleep
 import coax
 import optax
 from coax.value_losses import mse
+import jax.numpy as jnp
 
 from kevin.src.engine.board_updater import FixedBoardUpdater
 from kevin.src.engine.python_engine import RotatingBoardUpdater, PythonGameState
@@ -76,14 +78,46 @@ class PPOModel:
 
     new_epoch = True
     checkpoint_period = 15
-    render_period = 25
+    render_period = -1
 
     verbose = False
 
-    def learn(self, loops):
+    def smart_random_policy(self, obs, return_logp=False):
+
+        # We get the cheat code safe spots
+        meta = obs[1][0]
+        moves = [meta[7], meta[11], meta[15], meta[19]]
+        safe_moves = []
+        for i, move in enumerate(moves):
+            if move == 8:
+                safe_moves.append(i)
+
+        if len(safe_moves) < 1:
+            # No safe move - choose a random one
+            possible_moves = [i for i in range(self.gym_env.action_space.n)]
+        else:
+            # Safe move exists, choose one from there
+            possible_moves = safe_moves
+
+        # Randomly select the move and figure out logp
+        logits = coax.utils.single_to_batch(self.pi_behavior.dist_params(obs))
+        sample = jnp.array([[random.choice(possible_moves) for _ in range(self.gym_env.action_space.n)]])
+
+        move = sample[0][0]
+
+        # Logp is the log of the probability that pi would have selected this option
+        logp = self.pi_behavior.proba_dist.log_proba(logits, sample)
+        logp = coax.utils.batch_to_single(logp)
+
+        if return_logp:
+            return move, logp
+        else:
+            return move
+
+    def learn(self, loops, policy):
         for i in range(loops):
 
-            # Anneal learning rate
+            # Anneal learning rate and other hypers
             if self.epoch_num == 4:
                 self.change_learning_rate(0.1)
                 self.smooth_update_rate = 0.7
@@ -123,7 +157,7 @@ class PPOModel:
                 actions = {}
                 logps = {}
                 for agent in self.env.agents:
-                    actions[agent], logps[agent] = self.pi_behavior(obs[agent], return_logp=True)
+                    actions[agent], logps[agent] = policy(obs[agent], return_logp=True)
 
                 live_agents = self.env.agents[:]
                 obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
@@ -255,5 +289,5 @@ if True:
 else:
     m.build_from_file(".checkpoint/standard_4p_ppo_epoch_15_2023-03-19_15:09:18.pkl.lz4")
 
-m.profile()
-m.learn(10000000)
+m.learn(2000, m.smart_random_policy)
+m.learn(10000000, m.pi_behavior)
