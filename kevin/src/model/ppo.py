@@ -4,15 +4,16 @@ import os
 import pstats
 import random
 from datetime import datetime
-from time import sleep
 
 import coax
+import jax
 import optax
+import tensorboardX
 from coax.value_losses import mse
-import jax.numpy as jnp
 
+from kevin.src.engine import utils
 from kevin.src.engine.board_updater import FixedBoardUpdater
-from kevin.src.engine.python_engine import RotatingBoardUpdater, PythonGameState
+from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.model.model import Model, residual_body
 
@@ -25,6 +26,13 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
 class PPOModel:
     name = 'standard_4p_ppo'
 
+    # Set up the tensorboard
+    tensorboard = tensorboardX.SummaryWriter(comment=name)
+
+    def record_metrics(self, metrics):
+        for name, metric in metrics.items():
+            self.tensorboard.add_scalar(str(name), float(metric), global_step=self.episode_number)
+
     updater = FixedBoardUpdater(11, 11, 4)
     game = PythonGameState(updater=updater)
     env = RewindingEnv(game)
@@ -34,9 +42,8 @@ class PPOModel:
     ppo_clip: coax.policy_objectives.PPOClip | None
     simple_td: coax.td_learning.SimpleTD | None
 
-    smooth_update_rate = 0.9
-
     def __init__(self):
+        self.smooth_update_rate = 0.1
         self.model = None
         self.pi_regularizer = None
         self.v_targ = None
@@ -50,11 +57,12 @@ class PPOModel:
 
     def build(self):
 
+        self.smooth_update_rate = 0.75
         self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
-        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.75))
-        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.75))
+        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.4))
+        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.4))
 
         # q = coax.Q(func_q, gym_env)
         self.v = coax.V(self.model.v, self.gym_env)
@@ -64,7 +72,7 @@ class PPOModel:
         self.v_targ = self.v.copy()
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=9, gamma=0.9) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.9) for agent in self.env.possible_agents}
 
         # We just need one buffer ...?
         self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=4096)
@@ -73,12 +81,12 @@ class PPOModel:
         self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi)
         self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
 
-    epoch_num = 0
-    game_num = 0
+    Generation_num = 0
+    episode_number = 0
 
-    new_epoch = True
+    new_Generation = True
     checkpoint_period = 15
-    render_period = -1
+    render_period = 13
 
     verbose = False
 
@@ -99,65 +107,90 @@ class PPOModel:
             # Safe move exists, choose one from there
             possible_moves = safe_moves
 
-        # Randomly select the move and figure out logp
+        # pi_behavior's probability distribution
         logits = coax.utils.single_to_batch(self.pi_behavior.dist_params(obs))
-        sample = jnp.array([[random.choice(possible_moves) for _ in range(self.gym_env.action_space.n)]])
+        dist = self.pi_behavior.proba_dist
+        rng = self.pi_behavior.rng  # Borrow this to save time
 
-        move = sample[0][0]
+        # We take a sample from pi_behavior and modify it so that it happened to pick our move
+        sample = dist.sample(logits, rng)
+        move = random.choice(possible_moves)
+        sample = sample.at[0, 0].set(move)
 
-        # Logp is the log of the probability that pi would have selected this option
-        logp = self.pi_behavior.proba_dist.log_proba(logits, sample)
+        # Logp is the log of the probability that pi would have given us this sample
+        logp = dist.log_proba(logits, sample)
         logp = coax.utils.batch_to_single(logp)
+
+        # Finally, we clip logps that are too big to prevent the optimizer from going crazy.
+        if logp < -10:
+            logp = -10  # This is still equivalent to 0.005% chance of happening
 
         if return_logp:
             return move, logp
         else:
             return move
 
-    def learn(self, loops, policy):
+    def learn(self, loops):
+
         for i in range(loops):
 
             # Anneal learning rate and other hypers
-            if self.epoch_num == 4:
+            if self.Generation_num == 4:
                 self.change_learning_rate(0.1)
-                self.smooth_update_rate = 0.7
+                self.smooth_update_rate = 0.5
 
-            if self.epoch_num == 15:
+            if self.Generation_num == 15:
                 self.change_learning_rate(0.01)
                 self.smooth_update_rate = 0.35
 
-            if self.epoch_num == 30:
+            if self.Generation_num == 30:
                 self.change_learning_rate(0.001)
                 self.smooth_update_rate = 0.1
 
-            if self.epoch_num == 50:
+            if self.Generation_num == 50:
                 self.change_learning_rate(0.0005)
 
-            if self.epoch_num == 100:
+            if self.Generation_num == 100:
                 self.change_learning_rate(0.0001)
 
-            self.game_num += 1
+            self.episode_number += 1
 
             # Episode start
             obs = self.env.reset(i)
-            self.gym_env.reset()  # This should print logged metrics
+
+            # Possibly set some agents to use different policies
+            # For now we have 2 games with no random agent, then 3 games with
+            match i % 7:
+                case _:
+                    random_agent_count = i % 4
+
+            policies = {}
+            policy_names = {}
+            for j, agent in enumerate(self.env.agents):
+                if j < random_agent_count:
+                    policies[agent] = self.smart_random_policy
+                    policy_names[agent] = "Safe Random"
+                else:
+                    policies[agent] = self.pi_behavior
+                    policy_names[agent] = "Pi Behavior"
 
             cum_reward = {agent: 0. for agent in self.env.possible_agents}
 
-            if self.render_period > 0 and i % self.render_period == -1 % self.render_period:
+            if self.render_period > 0 and i % self.render_period == 0:
                 self.verbose = True
 
             if self.verbose:
-                print("===== Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
+                print("===== Game {}. Generation {} =========================".format(self.episode_number, self.Generation_num))
                 print(self.env.render())
 
+            live_agents = self.env.agents[:]
             while len(self.env.agents) > 0:
 
                 # Get actions
                 actions = {}
                 logps = {}
                 for agent in self.env.agents:
-                    actions[agent], logps[agent] = policy(obs[agent], return_logp=True)
+                    actions[agent], logps[agent] = policies[agent](obs[agent], return_logp=True)
 
                 live_agents = self.env.agents[:]
                 obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
@@ -189,29 +222,41 @@ class PPOModel:
                         transition_batch = self.buffer.sample(batch_size=32)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
+                        self.record_metrics(metrics_pi)
+                        self.record_metrics(metrics_v)
 
                     self.buffer.clear()
                     self.pi_behavior.soft_update(self.pi, tau=self.smooth_update_rate)
                     self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
 
-                    self.new_epoch = True
-                    self.epoch_num += 1
+                    self.new_Generation = True
+                    self.Generation_num += 1
 
                 obs = obs_next
             if self.verbose:
-                print("===== End Game {}. Epoch {} =========================".format(i, self.epoch_num))
+                print("===== End Game {}. Generation {} =========================".format(i, self.Generation_num))
+                winner = self.env.game.winner()
+                if winner is not None:
+                    print("Result: {} {} win!".format(utils.render_symbols[winner]["head"], winner))
+                else:
+                    print("Result: Draw.")
+
+                for agent, policy in policy_names.items():
+                    print("{} {}:\t{}\t\tReward:\t{:.2f}".format(utils.render_symbols[agent]["head"],
+                                                                 agent, policy, cum_reward[agent]))
+                print("=====================================================\n")
                 self.verbose = False
 
-            if self.new_epoch:
-                self.new_epoch = False
-                self.output_mode_game()
+            if self.new_Generation:
+                self.new_Generation = False
+                # self.output_mode_game()
 
     def output_mode_game(self):
 
         # Flush the replay stack so that we don't get a stinky replay
         self.env.state_pq = []
 
-        print("===== Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
+        print("===== Game {}. Generation {} =========================".format(self.episode_number, self.Generation_num))
         obs = self.env.reset(random.randint(-1000000, 1000000))
         print(self.env.render())
         cum_reward = {agent: 0. for agent in self.env.possible_agents}
@@ -240,19 +285,19 @@ class PPOModel:
             print(self.env.render())
             obs = obs_next
 
-        print("===== End Game {}. Epoch {} =========================".format(self.game_num, self.epoch_num))
+        print("===== End Game {}. Generation {} =========================".format(self.episode_number, self.Generation_num))
         print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
         print("-----------------------------------------------------")
 
-        if self.epoch_num % self.checkpoint_period == 0 and self.epoch_num != 0:
-            print("======Checkpoint {}============================".format(self.epoch_num))
-            print("-----------------------------------------------")
-            now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+        if self.Generation_num % self.checkpoint_period == 0 and self.Generation_num != 0:
+            print("======Checkpoint {}============================".format(self.Generation_num))
+            now = datetime.today().strftime('%Y-%m-%d_%H%M')
+            filename = ".checkpoint/{}_gen_{}_{}.pkl.lz4".format(self.name, self.Generation_num, now)
             coax.utils.dump([self.pi, self.pi_behavior, self.v, self.v_targ, self.tracers,
                              self.buffer, self.pi_regularizer, self.simple_td,
-                             self.ppo_clip, self.model],
-
-                            ".checkpoint/{}_epoch_{}_{}.pkl.lz4".format(self.name, self.epoch_num, now))
+                             self.ppo_clip, self.model], filename)
+            print("Saved as {}".format(filename))
+            print("================================================")
 
     def build_from_file(self, path):
 
@@ -264,16 +309,16 @@ class PPOModel:
         profiler = cProfile.Profile()
 
         # Play a few games to warm up
-        self.learn(10)
+        self.learn(20)
 
         print("Turning on profiler...")
         profiler.enable()
-        self.learn(50)
+        self.learn(80)
         profiler.disable()
-        now = datetime.today().strftime('%Y-%m-%d_%H:%M:%S')
+        now = datetime.today().strftime('%Y-%m-%d_%H%M')
         stats = pstats.Stats(profiler)
         stats.dump_stats("./.profiler/{}.prof".format(now))
-        print("200 games complete. Turning off profiler.")
+        print("80 games complete. Turning off profiler.")
 
     def change_learning_rate(self, rate_pi, rate_v=None):
         if rate_v is None:
@@ -287,7 +332,7 @@ m = PPOModel()
 if True:
     m.build()
 else:
-    m.build_from_file(".checkpoint/standard_4p_ppo_epoch_15_2023-03-19_15:09:18.pkl.lz4")
+    m.build_from_file("")
 
-m.learn(2000, m.smart_random_policy)
-m.learn(10000000, m.pi_behavior)
+m.profile()
+m.learn(10000000)

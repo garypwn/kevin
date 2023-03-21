@@ -66,22 +66,23 @@ def fancy_board_from_game(game: GameState):
         raise NotImplementedError
 
 
+render_symbols = {
+    "snake_0": {"head": "\N{Large yellow square}", "body": "\N{Large yellow circle}"},
+    "snake_1": {"head": "\N{Large blue square}", "body": "\N{Large blue circle}"},
+    "snake_2": {"head": "\N{Large orange square}", "body": "\N{Large orange circle}"},
+    "snake_3": {"head": "\N{Large purple square}", "body": "\N{Large purple circle}"},
+    "food": "\N{Tomato}"
+}
+
+
 def fancy_board(food_board: jax.Array, snake_boards: dict[str: jax.Array]):
     board = np.full(food_board.shape, "  ")
-
-    symbols = {
-        "snake_0": ["\N{Large yellow square}", "\N{Large yellow circle}"],
-        "snake_1": ["\N{Large blue square}", "\N{Large blue circle}"],
-        "snake_2": ["\N{Large orange square}", "\N{Large orange circle}"],
-        "snake_3": ["\N{Large purple square}", "\N{Large purple circle}"],
-        "food": ["\N{Tomato}"]
-    }
 
     # Food
     for i, row in enumerate(food_board):
         for j, c in enumerate(row):
             if c == 1:
-                board[i, j] = symbols["food"][0]
+                board[i, j] = render_symbols["food"]
 
     # Snakes
     for snake, snake_board in snake_boards.items():
@@ -91,8 +92,8 @@ def fancy_board(food_board: jax.Array, snake_boards: dict[str: jax.Array]):
         for i, row in enumerate(snake_board):
             for j, c in enumerate(row):
                 if c != 0:
-                    board[i, j] = symbols[snake][1]
+                    board[i, j] = render_symbols[snake]["body"]
                 if c == m:
-                    board[i, j] = symbols[snake][0]
+                    board[i, j] = render_symbols[snake]["head"]
 
     return board

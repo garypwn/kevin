@@ -31,11 +31,20 @@ class RewindingEnv(MultiSnakeEnv):
         # If there are saved rewinds in the stack, we can use one of those
         if len(self.state_pq) > 0:
 
+            cur_turn = self.game.turn_num
+
             # Put the most interesting game on the top
             self.state_pq.sort(
                 key=lambda game: game.turn_num * sum([len(snake.body) for _, snake in game.snakes.items()]),
                 reverse=True)
             self.game = self.state_pq.pop()
+
+            # Discard a game if it's too recent. We need long games for our transition buffer.
+            if self.game.turn_num > cur_turn - 6:
+                if len(self.state_pq) > 0:
+                    self.game = self.state_pq.pop()
+                else:
+                    self.game = self.game.reset(options)
 
             # Games stale much slower when more snakes are alive longer
             self.stale_counter += 0.99 ** self.game.turn_num * sum(

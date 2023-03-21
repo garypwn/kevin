@@ -160,6 +160,16 @@ class PythonGameState(GameState):
         """
         return len(self.snakes[snake_id].body) < 1
 
+    def winner(self) -> str | None:
+        """
+        Returns None if the game is not over or ended in a draw. Otherwise, return the name of the winner.
+        """
+        alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
+        if len(alive_snakes) != 1:
+            return None
+        else:
+            return alive_snakes[0]
+
     def _move_snakes(self, actions: dict):
         r""" Helper for step() """
 
@@ -326,11 +336,11 @@ class PythonGameState(GameState):
 
         # Neutral reward is based on surviving. Falls off late game.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
-        neutral_reward = 0.005
+        neutral_reward = 0.02
 
         # Being long gives a small reward
         converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98 ** self.turn_num
-        length_reward = 0.001 * len(self.snakes[snake_id].body)
+        length_reward = 0.005 * len(self.snakes[snake_id].body)
 
         # Reward for winning is huge
         static_victory_reward = 1.

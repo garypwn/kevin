@@ -95,6 +95,13 @@ class GameState(ABC):
         """
         pass
 
+    @abstractmethod
+    def winner(self) -> str | None:
+        """
+        Returns None if the game is not over or ended in a draw. Otherwise return the name of the winner.
+        """
+        pass
+
     def seed(self, seed) -> None:
         """
         Must be overriden if this class is used for training!
