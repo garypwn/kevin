@@ -72,10 +72,10 @@ class PPOModel:
         self.v_targ = self.v.copy()
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.9) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=2, gamma=0.8) for agent in self.env.possible_agents}
 
         # We just need one buffer ...?
-        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=4096)
+        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=8192)
 
         # Updaters
         self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi, regularizer=self.pi_regularizer)
@@ -122,8 +122,8 @@ class PPOModel:
         logp = coax.utils.batch_to_single(logp)
 
         # Finally, we clip logps that are too big to prevent the optimizer from going crazy.
-        if logp < -10:
-            logp = -10  # This is still equivalent to 0.005% chance of happening
+        if logp < -20:
+            logp = -20  # This is still equivalent to 2e-9 chance of happening
 
         if return_logp:
             return move, logp
@@ -216,8 +216,9 @@ class PPOModel:
                         self.buffer.add(tracer.pop())
 
                 if len(self.buffer) >= self.buffer.capacity:
-                    for _ in range(6 * self.buffer.capacity // 32):  # 6 passes
-                        transition_batch = self.buffer.sample(batch_size=32)
+                    batch_size = 128
+                    for _ in range(4 * self.buffer.capacity // batch_size):  # 4 passes
+                        transition_batch = self.buffer.sample(batch_size=batch_size)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
                         self.record_metrics(metrics_pi)
