@@ -28,6 +28,7 @@ build/
 
 # Logs
 .train_log
+runs/
 
 # IDE
 .idea

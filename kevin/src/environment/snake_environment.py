@@ -26,7 +26,7 @@ class MultiSnakeEnv(ParallelEnv):
     """
 
     game: GameState
-    fancy_render = False
+    fancy_render = True
 
     metadata = {"render_modes": [], "name": "battlesnake_v0"}
 
