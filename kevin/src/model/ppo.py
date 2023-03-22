@@ -54,14 +54,29 @@ class PPOModel:
         self.env = RewindingEnv(self.game)
         self.gym_env = self.env.dummy_gym_environment
 
-        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000)
+        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=500000)
 
         ray.init()
         self.updater_ref = ray.put(self.updater)
 
+    _learning_rate = 0.0001
+
+    @property
+    def learning_rate(self):
+        return self._learning_rate
+
+    @learning_rate.setter
+    def learning_rate(self, rate: float):
+        if rate == self._learning_rate:
+            return
+
+        self._learning_rate = rate
+        self.ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+        self.simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+
     def build(self):
 
-        self.smooth_update_rate = 0.75
+        self.smooth_update_rate = 0.5
         self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
@@ -84,15 +99,15 @@ class PPOModel:
     generation_num = 0
     episode_number = 0
 
-    new_Generation = True
-    checkpoint_period = 15
+    checkpoint_period = 1
     render_period = 10.  # How often to render a game in seconds
 
     verbose = False
 
     def learn(self, loops):
 
-        num_workers = 16
+        num_workers = 14
+        games_per_worker = 50
 
         for i in range(loops):
 
@@ -100,26 +115,31 @@ class PPOModel:
             renderer = None
             batches_this_gen = 0
 
-            # 256 batches x 256 transitions / 32-64 transitions per game. That's around 1-2k games per gen.
-            batches_per_gen = 256
+            # 128 batches x 256 transitions / 64-128 transitions per game. That's around 1-2k games per gen.
+            batches_per_gen = 128
             batch_size = 256
             while True:
 
                 # Anneal learning rate and other hypers
-                if self.generation_num == 30:
-                    self.change_learning_rate(0.005)
+                # Remember 1 gen is anywhere between 1000 and 4000 games
+                g = self.generation_num
+                if g < 30:  # 60k games
+                    self.learning_rate = 0.01
+                    self.smooth_update_rate = 0.03
+
+                if 30 <= g < 75:  # 150k games
+                    self.learning_rate = 0.005
                     self.smooth_update_rate = 0.2
 
-                if self.generation_num == 75:
-                    self.change_learning_rate(0.001)
-                    self.smooth_update_rate = 0.15
-
-                if self.generation_num == 250:
-                    self.change_learning_rate(0.0005)
+                if 75 <= g < 250:  # 500k games
+                    self.learning_rate = 0.001
                     self.smooth_update_rate = 0.1
 
-                if self.generation_num == 500:  # Half a million games
-                    self.change_learning_rate(0.0001)
+                if 250 <= g < 500:  # 1M games
+                    self.learning_rate = 0.0005
+
+                if self.generation_num >= 500:  # 5M games
+                    self.learning_rate = 0.0001
 
                 # These get sent to our workers so that they can display stats properly
                 stats = {
@@ -130,7 +150,7 @@ class PPOModel:
                 # Check on our workers
                 ready = []
                 if len(futures) > 0:
-                    ready, futures = ray.wait(futures, timeout=4)
+                    ready, futures = ray.wait(futures, timeout=0.1)
 
                 # If render worker is done, we must add another
                 if renderer not in futures:
@@ -140,7 +160,7 @@ class PPOModel:
                 pi_lz4 = coax.utils.dumps(self.pi_behavior)
                 while len(futures) < num_workers:
                     t = self.render_period if renderer is None else -1
-                    w = play_games.remote(pi_lz4, 100, self.updater_ref, t, stats)
+                    w = play_games.remote(pi_lz4, games_per_worker, self.updater_ref, t, stats)
                     futures.append(w)
                     if renderer is None:
                         renderer = w
@@ -152,11 +172,10 @@ class PPOModel:
                     trans_added = self.add_transition_batches(batches)
                     print("Processed {} transitions to buffer. "
                           "Buffer {} / {}.".format(trans_added, len(self.buffer), self.buffer.capacity))
-                    self.episode_number += 100
+                    self.episode_number += games_per_worker
 
                 # Learn
                 if len(self.buffer) >= 15000:
-
                     transition_batch = self.buffer.sample(batch_size=batch_size)
                     metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                     metrics_pi = self.ppo_clip.update(transition_batch, td_error)
@@ -171,7 +190,7 @@ class PPOModel:
                     self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
 
                     self.generation_num += 1
-                    batches_per_gen = 0
+                    batches_this_gen = 0
 
                     print("Model updated. "
                           "New workers will be dispatched with generation {}.".format(self.generation_num))
@@ -259,13 +278,6 @@ class PPOModel:
         stats = pstats.Stats(profiler)
         stats.dump_stats("./.profiler/{}.prof".format(now))
         print("80 games complete. Turning off profiler.")
-
-    def change_learning_rate(self, rate_pi, rate_v=None):
-        if rate_v is None:
-            rate_v = rate_pi
-
-        self.ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate_pi))
-        self.simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate_v))
 
 
 @ray.remote
@@ -378,8 +390,8 @@ class ExperienceWorker:
                 transition_batches.append(tracer.flush())
 
             if self.verbose:
-                print("===== End Generation {} Game {}+ =========================".format(self.generation_num,
-                                                                                          self.episode_num + i))
+                print("===== End Generation {} Game {}+ ({} / {}) =============="
+                      .format(self.generation_num, self.episode_num + i, i, n))
                 winner = self.env.game.winner()
                 if winner is not None:
                     print("Result:\t{} {} win!".format(utils.render_symbols[winner]["head"], winner))
@@ -389,7 +401,7 @@ class ExperienceWorker:
                 for agent, policy in policy_names.items():
                     print("{} {}:\t{}\t\tReward:\t{:.2f}".format(utils.render_symbols[agent]["head"],
                                                                  agent, policy, cum_reward[agent]))
-                print("==========================================================\n")
+                print("========================================================\n")
                 self.verbose = False
                 last_render = time.time()
 
