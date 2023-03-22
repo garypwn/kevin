@@ -92,30 +92,36 @@ class PPOModel:
 
     def learn(self, loops):
 
-        num_workers = 12
+        num_workers = 16
 
         for i in range(loops):
 
-            # Anneal learning rate and other hypers
-            if self.generation_num == 5:
-                self.change_learning_rate(0.005)
-                self.smooth_update_rate = 0.2
-
-            if self.generation_num == 15:
-                self.change_learning_rate(0.001)
-                self.smooth_update_rate = 0.15
-
-            if self.generation_num == 30:
-                self.change_learning_rate(0.0005)
-                self.smooth_update_rate = 0.1
-
-            if self.generation_num == 50:
-                self.change_learning_rate(0.0001)
-
             futures = []
             renderer = None
+            batches_this_gen = 0
+
+            # 256 batches x 256 transitions / 32-64 transitions per game. That's around 1-2k games per gen.
+            batches_per_gen = 256
+            batch_size = 256
             while True:
 
+                # Anneal learning rate and other hypers
+                if self.generation_num == 30:
+                    self.change_learning_rate(0.005)
+                    self.smooth_update_rate = 0.2
+
+                if self.generation_num == 75:
+                    self.change_learning_rate(0.001)
+                    self.smooth_update_rate = 0.15
+
+                if self.generation_num == 250:
+                    self.change_learning_rate(0.0005)
+                    self.smooth_update_rate = 0.1
+
+                if self.generation_num == 500:  # Half a million games
+                    self.change_learning_rate(0.0001)
+
+                # These get sent to our workers so that they can display stats properly
                 stats = {
                     "episode_num": self.episode_number,
                     "generation_num": self.generation_num
@@ -126,7 +132,7 @@ class PPOModel:
                 if len(futures) > 0:
                     ready, futures = ray.wait(futures, timeout=4)
 
-                # Render worker is done, so we must add another
+                # If render worker is done, we must add another
                 if renderer not in futures:
                     renderer = None
 
@@ -144,25 +150,29 @@ class PPOModel:
                     batches = ray.get(future)
                     print("Received {} transition batches from worker.".format(len(batches)))
                     trans_added = self.add_transition_batches(batches)
-                    print("Processed {} transitions to buffer.".format(trans_added))
+                    print("Processed {} transitions to buffer. "
+                          "Buffer {} / {}.".format(trans_added, len(self.buffer), self.buffer.capacity))
                     self.episode_number += 100
 
                 # Learn
                 if len(self.buffer) >= 15000:
-                    print("Updating model...")
-                    for _ in range(256):  # 256 passes * 64 transitions ~ 10k transitions
-                        transition_batch = self.buffer.sample(batch_size=64)
-                        metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
-                        metrics_pi = self.ppo_clip.update(transition_batch, td_error)
-                        self.record_metrics(metrics_pi)
-                        self.record_metrics(metrics_v)
 
-                        self.buffer.update(transition_batch.idx, td_error)
+                    transition_batch = self.buffer.sample(batch_size=batch_size)
+                    metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
+                    metrics_pi = self.ppo_clip.update(transition_batch, td_error)
+                    self.record_metrics(metrics_pi)
+                    self.record_metrics(metrics_v)
 
-                        self.pi_behavior.soft_update(self.pi, tau=self.smooth_update_rate)
-                        self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
+                    self.buffer.update(transition_batch.idx, td_error)
+                    batches_this_gen += 1
+
+                if batches_this_gen >= batches_per_gen:
+                    self.pi_behavior.soft_update(self.pi, tau=self.smooth_update_rate)
+                    self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
 
                     self.generation_num += 1
+                    batches_per_gen = 0
+
                     print("Model updated. "
                           "New workers will be dispatched with generation {}.".format(self.generation_num))
 
