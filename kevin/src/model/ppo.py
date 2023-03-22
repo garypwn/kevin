@@ -24,12 +24,6 @@ class PPOModel:
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'  # use most of gpu mem
 
-    version = '0.1'
-    name = 'kevin_v{}_{}'.format(version, datetime.today().strftime('%Y-%m-%d_%H%M'))
-
-    # Set up the tensorboard
-    tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(version, name))
-
     def record_metrics(self, metrics):
         for name, metric in metrics.items():
             self.tensorboard.add_scalar(str(name), float(metric), global_step=self.episode_number)
@@ -38,7 +32,11 @@ class PPOModel:
     simple_td: coax.td_learning.SimpleTD | None
 
     def __init__(self):
-        self.smooth_update_rate = 0.1
+        self.version = '0.1'
+        self.name = 'kevin_v{}_{}'.format(self.version, datetime.today().strftime('%Y-%m-%d_%H%M'))
+        self._v_optimizer = None
+        self._pi_optimizer = None
+        self.soft_update_rate = 0.1
         self.model = None
         self.pi_regularizer = None
         self.v_targ = None
@@ -60,7 +58,21 @@ class PPOModel:
         ray.init()
         self.updater_ref = ray.put(self.updater)
 
-    _learning_rate = 0.0001
+    _learning_rate = 0.0
+    _beta = 0.
+
+    @property
+    def beta(self):
+        return self._beta
+
+    @beta.setter
+    def beta(self, beta):
+        if beta == self._beta:
+            return
+
+        self._beta = beta
+        r = coax.regularizers.EntropyRegularizer(self.pi, self._beta)
+        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi_behavior, self._pi_optimizer, r)
 
     @property
     def learning_rate(self):
@@ -72,12 +84,14 @@ class PPOModel:
             return
 
         self._learning_rate = rate
-        self.ppo_clip.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
-        self.simple_td.optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+        self._pi_optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+        self._v_optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+        self.ppo_clip.optimizer = self._pi_optimizer
+        self.simple_td.optimizer = self._v_optimizer
 
     def build(self):
 
-        self.smooth_update_rate = 0.5
+        self.soft_update_rate = 0.5
         self.model = Model(residual_body, self.gym_env.action_space)
 
         # Optimizers
@@ -110,6 +124,9 @@ class PPOModel:
         num_workers = 10
         games_per_worker = 50
 
+        # Set up the tensorboard
+        tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(self.version, self.name))
+
         for i in range(loops):
 
             futures = []
@@ -126,21 +143,28 @@ class PPOModel:
                 g = self.generation_num
                 if g < 30:  # 60k games
                     self.learning_rate = 0.025
-                    self.smooth_update_rate = 0.03
+                    self.beta = 0.04
+                    self.soft_update_rate = 0.03
 
                 if 30 <= g < 75:  # 150k games
                     self.learning_rate = 0.0075
-                    self.smooth_update_rate = 0.2
+                    self.beta = 0.01
+                    self.soft_update_rate = 0.2
 
                 if 75 <= g < 250:  # 500k games
                     self.learning_rate = 0.002
-                    self.smooth_update_rate = 0.1
+                    self.beta = 0.0006
+                    self.soft_update_rate = 0.1
 
                 if 250 <= g < 500:  # 1M games
                     self.learning_rate = 0.00075
+                    self.beta = 0.0001
+                    self.soft_update_rate = 0.1
 
                 if self.generation_num >= 500:  # 5M games
                     self.learning_rate = 0.0001
+                    self.beta = 0.000075
+                    self.soft_update_rate = 0.1
                 del g
 
                 # These get sent to our workers so that they can display stats properly
@@ -190,8 +214,8 @@ class PPOModel:
                     batches_this_gen += 1
 
                 if batches_this_gen >= batches_per_gen:
-                    self.pi_behavior.soft_update(self.pi, tau=self.smooth_update_rate)
-                    self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
+                    self.pi_behavior.soft_update(self.pi, tau=self.soft_update_rate)
+                    self.v_targ.soft_update(self.v, tau=self.soft_update_rate)
 
                     self.generation_num += 1
                     batches_this_gen = 0
@@ -214,8 +238,7 @@ class PPOModel:
 
     def checkpoint(self):
         print("======Checkpoint {}============================".format(self.generation_num))
-        now = datetime.today().strftime('%Y-%m-%d_%H%M')
-        filename = ".checkpoint/{}_gen_{}_{}.pkl.lz4".format(self.name, self.generation_num, now)
+        filename = ".checkpoint/{}_gen_{}.pkl.lz4".format(self.name, self.generation_num)
 
         coax.utils.dump(
             [self.name, self.episode_number, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
@@ -454,9 +477,9 @@ class SmartRandomPolicy:
 
 
 m = PPOModel()
-if True:
+if False:
     m.build()
 else:
-    m.build_from_file("")
+    m.build_from_file(".checkpoint/[checkpoint_here].pkl.lz4")
 
 m.learn(10000000)
