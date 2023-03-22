@@ -24,10 +24,11 @@ class PPOModel:
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'  # use most of gpu mem
 
-    name = 'standard_4p_ppo'
+    version = '0.1'
+    name = 'kevin_v{}_{}'.format(version, datetime.today().strftime('%Y-%m-%d_%H%M'))
 
     # Set up the tensorboard
-    tensorboard = tensorboardX.SummaryWriter(comment=name)
+    tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(version, name))
 
     def record_metrics(self, metrics):
         for name, metric in metrics.items():
@@ -106,7 +107,7 @@ class PPOModel:
 
     def learn(self, loops):
 
-        num_workers = 14
+        num_workers = 10
         games_per_worker = 50
 
         for i in range(loops):
@@ -124,22 +125,23 @@ class PPOModel:
                 # Remember 1 gen is anywhere between 1000 and 4000 games
                 g = self.generation_num
                 if g < 30:  # 60k games
-                    self.learning_rate = 0.01
+                    self.learning_rate = 0.025
                     self.smooth_update_rate = 0.03
 
                 if 30 <= g < 75:  # 150k games
-                    self.learning_rate = 0.005
+                    self.learning_rate = 0.0075
                     self.smooth_update_rate = 0.2
 
                 if 75 <= g < 250:  # 500k games
-                    self.learning_rate = 0.001
+                    self.learning_rate = 0.002
                     self.smooth_update_rate = 0.1
 
                 if 250 <= g < 500:  # 1M games
-                    self.learning_rate = 0.0005
+                    self.learning_rate = 0.00075
 
                 if self.generation_num >= 500:  # 5M games
                     self.learning_rate = 0.0001
+                del g
 
                 # These get sent to our workers so that they can display stats properly
                 stats = {
@@ -167,8 +169,10 @@ class PPOModel:
 
                 # Process results of completed workers
                 for future in ready:
-                    batches = ray.get(future)
+                    result = ray.get(future)
+                    batches = result['transitions']
                     print("Received {} transition batches from worker.".format(len(batches)))
+                    self.log_scoreboard(result['episode_num'], result['gen'], result['score'])
                     trans_added = self.add_transition_batches(batches)
                     print("Processed {} transitions to buffer. "
                           "Buffer {} / {}.".format(trans_added, len(self.buffer), self.buffer.capacity))
@@ -198,45 +202,6 @@ class PPOModel:
                     if self.generation_num % self.checkpoint_period == 0 and self.generation_num != 0:
                         self.checkpoint()
 
-    def output_mode_game(self):
-
-        # Flush the replay stack so that we don't get a stinky replay
-        self.env.state_pq = []
-
-        print("===== Game {}. Generation {} =========================".format(self.episode_number, self.generation_num))
-        obs = self.env.reset(random.randint(-1000000, 1000000))
-        print(self.env.render())
-        cum_reward = {agent: 0. for agent in self.env.possible_agents}
-
-        while len(self.env.agents) > 0:
-            # Get actions
-            actions = {}
-            for agent in self.env.agents:
-                action = self.pi_behavior.mode(obs[agent])
-                if self.env.game.meta_factory.all_safe_moves[agent][action] == 0:
-                    for i in range(4):
-                        action = self.pi_behavior(obs[agent])
-                        if self.env.game.meta_factory.all_safe_moves[agent][action] == 8:
-                            break
-                        if i == 3:
-                            print("Warning: Agent {} has tried to make an unsafe move 4 times. Hopefully it knows "
-                                  "something we don't.".format(agent))
-
-                actions[agent] = action
-
-            live_agents = self.env.agents[:]
-            obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
-            for agent in live_agents:
-                cum_reward[agent] += rewards[agent]
-
-            print(self.env.render())
-            obs = obs_next
-
-        print("===== End Game {}. Generation {} =========================".format(self.episode_number,
-                                                                                  self.generation_num))
-        print("Rewards: {}".format({s: "{:.2f}".format(r) for s, r in cum_reward.items()}))
-        print("-----------------------------------------------------")
-
     def add_transition_batches(self, transition_batches):
         ct = 0
         for batch in transition_batches:
@@ -252,16 +217,17 @@ class PPOModel:
         now = datetime.today().strftime('%Y-%m-%d_%H%M')
         filename = ".checkpoint/{}_gen_{}_{}.pkl.lz4".format(self.name, self.generation_num, now)
 
-        coax.utils.dump([self.name, self.episode_number, self.generation_num, self.smooth_update_rate,
-                         self.pi, self.pi_behavior, self.v, self.v_targ, self.pi_regularizer, self.simple_td,
-                         self.ppo_clip, self.model], filename)
+        coax.utils.dump(
+            [self.name, self.episode_number, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
+             self.pi_regularizer, self.simple_td,
+             self.ppo_clip, self.model], filename)
         print("Saved as {}".format(filename))
         print("================================================")
 
     def build_from_file(self, path):
 
-        (self.name, self.episode_number, self.generation_num, self.smooth_update_rate,
-         self.pi, self.pi_behavior, self.v, self.v_targ, self.pi_regularizer, self.simple_td,
+        (self.name, self.episode_number, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
+         self.pi_regularizer, self.simple_td,
          self.ppo_clip, self.model) = coax.utils.load(path)
 
     def profile(self):
@@ -278,6 +244,17 @@ class PPOModel:
         stats = pstats.Stats(profiler)
         stats.dump_stats("./.profiler/{}.prof".format(now))
         print("80 games complete. Turning off profiler.")
+
+    def log_scoreboard(self, eps, gen, score):
+        self.tensorboard.add_scalar("generation", gen, global_step=eps)
+
+        games = score['games']
+        rates_dict = {name: [x / y for x, y in zip(results, games)]
+                      for name, results in score.items() if name != 'games'}
+
+        for name, rates in rates_dict.items():
+            for i, rate in enumerate(rates):
+                self.tensorboard.add_scalar("ScoreVsRandom/{}/{}_opponents".format(name, i), rate, global_step=eps)
 
 
 @ray.remote
@@ -331,6 +308,12 @@ class ExperienceWorker:
         transition_batches = []
         last_render = 0.
 
+        # Record vs random opponents
+        vs_random = {'win': [0] * len(self.env.possible_agents),
+                     'loss': [0] * len(self.env.possible_agents),
+                     'draw': [0] * len(self.env.possible_agents),
+                     'games': [0] * len(self.env.possible_agents)}
+
         for i in range(n):
             # Episode start
             obs = self.env.reset(i + seed_start)
@@ -354,7 +337,7 @@ class ExperienceWorker:
                 self.verbose = True
 
             if self.verbose:
-                print("===== Begin Generation {} Game {}+ ========================".format(self.generation_num,
+                print("===== Begin Generation {} Game ~{} ========================".format(self.generation_num,
                                                                                            self.episode_num + i))
                 print(self.env.render())
 
@@ -389,10 +372,20 @@ class ExperienceWorker:
             for _, tracer in self.tracers.items():
                 transition_batches.append(tracer.flush())
 
+            # Record how we did vs the random agent
+            winner = self.env.game.winner()
+            if winner is None:
+                vs_random['draw'][random_agents] += 1
+            elif policy_names[winner] == 'Safe Random':
+                vs_random['loss'][random_agents] += 1
+            else:
+                vs_random['win'][random_agents] += 1
+            vs_random['games'][random_agents] += 1
+
             if self.verbose:
-                print("===== End Generation {} Game {}+ ({} / {}) =============="
+                print("===== End Generation {} Game ~{} ({} / {}) =============="
                       .format(self.generation_num, self.episode_num + i, i, n))
-                winner = self.env.game.winner()
+
                 if winner is not None:
                     print("Result:\t{} {} win!".format(utils.render_symbols[winner]["head"], winner))
                 else:
@@ -405,7 +398,12 @@ class ExperienceWorker:
                 self.verbose = False
                 last_render = time.time()
 
-        return transition_batches
+        return {
+            "transitions": transition_batches,
+            "gen": self.generation_num,
+            "episode_num": self.episode_num + n,
+            "score": vs_random
+        }
 
 
 class SmartRandomPolicy:
