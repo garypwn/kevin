@@ -52,6 +52,7 @@ class PythonGameState(GameState):
     food_board: jax.Array | None
     recent_eliminations = set()
     meta_factory: MetaObservationFactory
+    snake_ate_food = []
 
     # Options
     save_replays = False
@@ -175,6 +176,7 @@ class PythonGameState(GameState):
 
         # Two snakes can eat the same food. It only disappears after resolving.
         eaten_food: list[tuple[int, int]] = []
+        self.snake_ate_food = []
 
         #  Apply move
         for name, snake in self.snakes.items():
@@ -199,6 +201,7 @@ class PythonGameState(GameState):
             if head in self.food:
                 snake.health = 100
                 snake.body.append(snake.body[len(snake.body) - 1])
+                self.snake_ate_food.append(name)
                 eaten_food.append(head)
 
         #  Check elimination conditions
@@ -336,17 +339,20 @@ class PythonGameState(GameState):
 
         # Neutral reward is based on surviving. Falls off late game.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
-        neutral_reward = 0.02
+        survival_reward = 0.02
 
         # Being long gives a small reward
         converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98 ** self.turn_num
-        length_reward = 0.005 * len(self.snakes[snake_id].body)
+        length_reward = 0.003 * len(self.snakes[snake_id].body)
 
         # Reward for winning is huge
         static_victory_reward = 1.
 
         # Defeat gives a static penalty
         defeat_penalty = -.5
+
+        # Eating food gives a small static penalty (smaller than killing or winning)
+        food_reward = .1 if snake_id in self.snake_ate_food else 0
 
         # Add a reward for other snakes dying (hopefully translates to the urge to kill)
         if len(self.recent_eliminations) > 0 and snake_id not in self.recent_eliminations:
@@ -364,12 +370,12 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return neutral_reward + length_reward
+                return survival_reward + length_reward + food_reward
 
             # Multiplayer victory
-            return static_victory_reward + neutral_reward + length_reward + kill_reward
+            return static_victory_reward + survival_reward + length_reward + kill_reward + food_reward
 
-        return neutral_reward + length_reward + kill_reward
+        return survival_reward + length_reward + kill_reward + food_reward
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
 
