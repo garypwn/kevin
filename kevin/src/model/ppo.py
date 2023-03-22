@@ -2,6 +2,7 @@ import cProfile
 import os
 import pstats
 import random
+import time
 from datetime import datetime
 from typing import Callable
 
@@ -53,6 +54,8 @@ class PPOModel:
         self.env = RewindingEnv(self.game)
         self.gym_env = self.env.dummy_gym_environment
 
+        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000)
+
         ray.init()
         self.updater_ref = ray.put(self.updater)
 
@@ -74,9 +77,6 @@ class PPOModel:
         self.pi_behavior = self.pi.copy()
         self.v_targ = self.v.copy()
 
-        # We just need one buffer ...?
-        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=1000000)
-
         # Updaters
         self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, optimizer=optimizer_pi, regularizer=self.pi_regularizer)
         self.simple_td = coax.td_learning.SimpleTD(self.v, self.v_targ, optimizer=optimizer_q, loss_function=mse)
@@ -86,7 +86,7 @@ class PPOModel:
 
     new_Generation = True
     checkpoint_period = 15
-    render_period = 10
+    render_period = 10.  # How often to render a game in seconds
 
     verbose = False
 
@@ -112,8 +112,8 @@ class PPOModel:
             if self.generation_num == 50:
                 self.change_learning_rate(0.0001)
 
-            futures = {}
-            renderer = False
+            futures = []
+            renderer = None
             while True:
 
                 stats = {
@@ -121,32 +121,37 @@ class PPOModel:
                     "generation_num": self.generation_num
                 }
 
+                # Check on our workers
+                ready = []
+                if len(futures) > 0:
+                    ready, futures = ray.wait(futures, timeout=4)
+
+                # Render worker is done, so we must add another
+                if renderer not in futures:
+                    renderer = None
+
                 # Set up new workers to play 100 games then die
                 pi_lz4 = coax.utils.dumps(self.pi_behavior)
                 while len(futures) < num_workers:
-                    t = -1 if renderer else self.render_period
+                    t = self.render_period if renderer is None else -1
                     w = play_games.remote(pi_lz4, 100, self.updater_ref, t, stats)
-                    futures[w] = not renderer
-                    renderer = True
+                    futures.append(w)
+                    if renderer is None:
+                        renderer = w
 
-                # Check on our workers
-                ready, _ = ray.wait([i for i, _ in futures.items()], timeout=4)
+                # Process results of completed workers
                 for future in ready:
-                    if futures[future]:
-                        renderer = False
-
                     batches = ray.get(future)
-                    print("Received {} transitions batches from experience worker".format(len(batches)))
+                    print("Received {} transition batches from worker.".format(len(batches)))
                     trans_added = self.add_transition_batches(batches)
                     print("Processed {} transitions to buffer.".format(trans_added))
-                    del futures[future]
                     self.episode_number += 100
 
-                if len(self.buffer) >= 5000:
-
+                # Learn
+                if len(self.buffer) >= 15000:
                     print("Updating model...")
-                    for _ in range(8):  # After 8 updates, we call it a new generation
-                        transition_batch = self.buffer.sample(batch_size=128)
+                    for _ in range(256):  # 256 passes * 64 transitions ~ 10k transitions
+                        transition_batch = self.buffer.sample(batch_size=64)
                         metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
                         metrics_pi = self.ppo_clip.update(transition_batch, td_error)
                         self.record_metrics(metrics_pi)
@@ -158,7 +163,7 @@ class PPOModel:
                         self.v_targ.soft_update(self.v, tau=self.smooth_update_rate)
 
                     self.generation_num += 1
-                    print("Model updated."
+                    print("Model updated. "
                           "New workers will be dispatched with generation {}.".format(self.generation_num))
 
                     if self.generation_num % self.checkpoint_period == 0 and self.generation_num != 0:
@@ -217,15 +222,18 @@ class PPOModel:
         print("======Checkpoint {}============================".format(self.generation_num))
         now = datetime.today().strftime('%Y-%m-%d_%H%M')
         filename = ".checkpoint/{}_gen_{}_{}.pkl.lz4".format(self.name, self.generation_num, now)
-        coax.utils.dump([self.name, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
-                         self.pi_regularizer, self.simple_td, self.ppo_clip, self.model], filename)
+
+        coax.utils.dump([self.name, self.episode_number, self.generation_num, self.smooth_update_rate,
+                         self.pi, self.pi_behavior, self.v, self.v_targ, self.pi_regularizer, self.simple_td,
+                         self.ppo_clip, self.model], filename)
         print("Saved as {}".format(filename))
         print("================================================")
 
     def build_from_file(self, path):
 
-        (self.name, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
-         self.pi_regularizer, self.simple_td, self.ppo_clip, self.model) = coax.utils.load(path)
+        (self.name, self.episode_number, self.generation_num, self.smooth_update_rate,
+         self.pi, self.pi_behavior, self.v, self.v_targ, self.pi_regularizer, self.simple_td,
+         self.ppo_clip, self.model) = coax.utils.load(path)
 
     def profile(self):
         profiler = cProfile.Profile()
@@ -299,24 +307,19 @@ class ExperienceWorker:
 
         seed_start = random.randint(-100000000, 100000000)
         transition_batches = []
+        last_render = 0.
+
         for i in range(n):
             # Episode start
             obs = self.env.reset(i + seed_start)
 
-            def random_agent_count():
-
-                # Possibly set some agents to use different policies
-                # For now we have 10 games with no random agent, then 3 games with varying numbers
-                match i % 13:
-                    case 1, 2, 3:
-                        return i % 9
-                    case _:
-                        return 0
-
             policies = {}
             policy_names = {}
+
+            # 3 games with random agents for every 25 without
+            random_agents = i % 28 if i % 28 in (1, 2, 3) else 0
             for j, agent in enumerate(self.env.agents):
-                if j < random_agent_count():
+                if j < random_agents:
                     policies[agent] = self.random_policy
                     policy_names[agent] = "Safe Random"
                 else:
@@ -325,15 +328,14 @@ class ExperienceWorker:
 
             cum_reward = {agent: 0. for agent in self.env.possible_agents}
 
-            if self.render_period > 0 and i % self.render_period == 0:
+            if self.render_period > 0 and time.time() > last_render + self.render_period:
                 self.verbose = True
 
             if self.verbose:
-                print("===== Begin Generation {} Game {}+. ========================".format(self.generation_num,
-                                                                                            self.episode_num + i))
+                print("===== Begin Generation {} Game {}+ ========================".format(self.generation_num,
+                                                                                           self.episode_num + i))
                 print(self.env.render())
 
-            live_agents = self.env.agents[:]
             while len(self.env.agents) > 0:
 
                 # Get actions
@@ -366,11 +368,11 @@ class ExperienceWorker:
                 transition_batches.append(tracer.flush())
 
             if self.verbose:
-                print("===== End Generation {} Game {}+. =========================".format(self.generation_num,
-                                                                                           self.episode_num + i))
+                print("===== End Generation {} Game {}+ =========================".format(self.generation_num,
+                                                                                          self.episode_num + i))
                 winner = self.env.game.winner()
                 if winner is not None:
-                    print("Result: {} {} win!".format(utils.render_symbols[winner]["head"], winner))
+                    print("Result:\t{} {} win!".format(utils.render_symbols[winner]["head"], winner))
                 else:
                     print("Result: Draw.")
 
@@ -379,6 +381,7 @@ class ExperienceWorker:
                                                                  agent, policy, cum_reward[agent]))
                 print("==========================================================\n")
                 self.verbose = False
+                last_render = time.time()
 
         return transition_batches
 
