@@ -116,13 +116,16 @@ class MultiSnakeEnv(ParallelEnv):
         if self.fancy_render:
             board = utils.fancy_board_from_game(self.game)
             turn = self.game.turn_num
-            snakes = {name: snake.health for name, snake in self.game.snakes.items()}
+            div = "-----------------------------------------------------"
+            snakes = "Health:\t\t" + "\t".join(
+                [f"{utils.render_symbols[n]['head']}: {self.game.snakes[n].health if n in self.agents else 0:<4}"
+                 for n in self.agents])
 
             if isinstance(self.game, PythonGameState) and self.game.branch_name != "":
                 branch = self.game.branch_name
                 return "\nBranch {}: Turn {}.\n{}\n{}\n".format(branch, turn, snakes, board)
 
-            return "\nTurn {}.\n{}\n{}\n".format(turn, snakes, board)
+            return "\n{}\nTurn {}.\n{}\n{}\n".format(div, turn, snakes, board)
         return self.game.__str__()
 
     def state(self) -> jnp.ndarray:

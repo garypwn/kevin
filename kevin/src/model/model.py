@@ -16,22 +16,18 @@ class Model:
 
     def pi_logits(self, S, is_training):
         logits = hk.Sequential([
-            jnn.relu,
             hk.Flatten(),
-            hk.Linear(self.action_space.n, w_init=jnp.zeros, name="pi_head_output")
+            hk.Linear(256),
+            hk.Linear(self.action_space.n, name="pi_head_output")
         ])
-        result = self.body(S, is_training)
-        conv = hk.Conv2D(2, (1, 1), data_format="NHWC", name="pi_head_conv")(result)
-        norm = hk.BatchNorm(True, True, 0.999, data_format="NHWC", name="pi_head_norm")(conv, is_training)
-        return {'logits': logits(norm)}
+        return {'logits': logits(self.body(S, is_training))}
 
     def v(self, S, is_training):
         value = hk.Sequential([
-            hk.Linear(256, name="v_head_linear"),
-            jnn.relu,
             hk.Flatten(),
+            hk.Linear(256),
             hk.Linear(1, name="v_head_output"),
-            jnp.tanh, jnp.ravel
+            jnp.ravel
         ])
         result = self.body(S, is_training)
         return value(result)
@@ -46,6 +42,15 @@ class Model:
         return seq(result)
 
 
+def simple_linear_body(x, is_training):
+    boards = jnp.float32(jnp.moveaxis(x, 1, 3))
+    lin = hk.Sequential([
+        hk.Linear(256, name="body_0"), jnn.relu,
+        hk.Linear(256, name="body_1"), jnn.relu
+    ])
+    return lin(boards)
+
+
 def residual_body(x, is_training):
     class ConvNorm:
         def __init__(self, shape, name=None):
@@ -58,8 +63,8 @@ def residual_body(x, is_training):
             self.shape = [shape, shape]
 
         def __call__(self, s):
-            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="NHWC", name=self.batch_name)
-            conv2d = hk.Conv2D(256, self.shape, data_format="NHWC", name=self.conv_name)
+            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="N...C", name=self.batch_name)
+            conv2d = hk.Conv2D(256, self.shape, data_format="N...C", name=self.conv_name)
             return batch_norm(conv2d(s), is_training)
 
     class ResCore:
@@ -82,15 +87,17 @@ def residual_body(x, is_training):
             return jnp.add(s, convoluted(s))
 
     conv = hk.Sequential([
-        hk.Reshape([23*7, 23], preserve_dims=1),  # Concatenate stacked feature maps
-        ConvNorm(3, "top"), jnn.relu,
+
+        hk.Reshape([-1, 23]),
+
+        # 3x3 -> adjacent things. Things that might happen next turn.
+        hk.Conv2D(256, [3, 3], data_format="N...C", name="body_0"), jnn.relu,
+
         ResCore(3, "res_core_0"), jnn.relu,
         ResCore(3, "res_core_1"), jnn.relu,
-        ResCore(3, "res_core_2"), jnn.relu,
-        ResCore(3, "res_core_3"), jnn.relu,
-        ResCore(3, "res_core_4"), jnn.relu,
+
     ])
 
-    boards = jnp.float32(x)
+    boards = jnp.float32(jnp.moveaxis(x, 1, 3))
 
     return conv(boards)

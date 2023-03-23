@@ -337,13 +337,17 @@ class PythonGameState(GameState):
         :return:
         """
 
+        scale = 10.
+
         # Neutral reward is based on surviving. Falls off late game.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
-        survival_reward = 0.02
+        # survival_reward = 0.02
+        survival_reward = 0.
 
         # Being long gives a small reward
         converging_length_reward = 0.25 * len(self.snakes[snake_id].body) * 0.98 ** self.turn_num
         length_reward = 0.003 * len(self.snakes[snake_id].body)
+        length_reward = 0.0
 
         # Reward for winning is huge
         static_victory_reward = 1.
@@ -362,7 +366,7 @@ class PythonGameState(GameState):
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return defeat_penalty
+            return (defeat_penalty) * scale
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -370,12 +374,12 @@ class PythonGameState(GameState):
 
             # If it's single player, return a neutral reward
             if self.single_player_mode:
-                return survival_reward + length_reward + food_reward
+                return (survival_reward + length_reward + food_reward) * scale
 
             # Multiplayer victory
-            return static_victory_reward + survival_reward + length_reward + kill_reward + food_reward
+            return (static_victory_reward + survival_reward + length_reward + kill_reward + food_reward) * scale
 
-        return survival_reward + length_reward + kill_reward + food_reward
+        return (survival_reward + length_reward + kill_reward + food_reward) * scale
 
     def step(self, actions, options: dict | None = None) -> PythonGameState:
 

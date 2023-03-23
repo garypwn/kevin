@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Callable
 
 import coax
+import jax.nn
 import optax
 import ray
 import tensorboardX
@@ -16,13 +17,14 @@ from kevin.src.engine import utils
 from kevin.src.engine.board_updater import FixedBoardUpdater
 from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
+from kevin.src.model import model
 from kevin.src.model.model import Model, residual_body
 
 
 class PPOModel:
     # set some env vars
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
-    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'  # use most of gpu mem
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.77'  # use most of gpu mem
 
     def record_metrics(self, metrics):
         for name, metric in metrics.items():
@@ -32,6 +34,7 @@ class PPOModel:
     simple_td: coax.td_learning.SimpleTD | None
 
     def __init__(self):
+        self.tensorboard = None
         self.version = '0.1'
         self.name = 'kevin_v{}_{}'.format(self.version, datetime.today().strftime('%Y-%m-%d_%H%M'))
         self._v_optimizer = None
@@ -53,7 +56,7 @@ class PPOModel:
         self.env = RewindingEnv(self.game)
         self.gym_env = self.env.dummy_gym_environment
 
-        self.buffer = coax.experience_replay.PrioritizedReplayBuffer(capacity=500000)
+        self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=500000)
 
         ray.init()
         self.updater_ref = ray.put(self.updater)
@@ -72,7 +75,7 @@ class PPOModel:
 
         self._beta = beta
         r = coax.regularizers.EntropyRegularizer(self.pi, self._beta)
-        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi_behavior, self._pi_optimizer, r)
+        self.ppo_clip = coax.policy_objectives.PPOClip(self.pi, self._pi_optimizer, r)
 
     @property
     def learning_rate(self):
@@ -84,19 +87,19 @@ class PPOModel:
             return
 
         self._learning_rate = rate
-        self._pi_optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
-        self._v_optimizer = optax.chain(optax.apply_every(k=4), optax.adam(rate))
+        self._pi_optimizer = optax.adam(rate)
+        self._v_optimizer = optax.adam(rate)
         self.ppo_clip.optimizer = self._pi_optimizer
         self.simple_td.optimizer = self._v_optimizer
 
     def build(self):
 
         self.soft_update_rate = 0.5
-        self.model = Model(residual_body, self.gym_env.action_space)
+        self.model = Model(model.residual_body, self.gym_env.action_space)
 
         # Optimizers
-        optimizer_q = optax.chain(optax.apply_every(k=4), optax.adam(0.01))
-        optimizer_pi = optax.chain(optax.apply_every(k=4), optax.adam(0.01))
+        optimizer_q = optax.adam(0.01)
+        optimizer_pi = optax.adam(0.01)
 
         # q = coax.Q(func_q, gym_env)
         self.v = coax.V(self.model.v, self.gym_env)
@@ -114,18 +117,16 @@ class PPOModel:
     generation_num = 0
     episode_number = 0
 
-    checkpoint_period = 1
+    checkpoint_period = 2
     render_period = 10.  # How often to render a game in seconds
-
-    verbose = False
 
     def learn(self, loops):
 
-        num_workers = 10
+        num_workers = 12
         games_per_worker = 50
 
         # Set up the tensorboard
-        tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(self.version, self.name))
+        self.tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(self.version, self.name))
 
         for i in range(loops):
 
@@ -136,6 +137,7 @@ class PPOModel:
             # 128 batches x 256 transitions / 64-128 transitions per game. That's around 1-2k games per gen.
             batches_per_gen = 128
             batch_size = 256
+            mini_batch_size = 32  # Set this to whatever your gpu can handle
             while True:
 
                 # Anneal learning rate and other hypers
@@ -143,27 +145,27 @@ class PPOModel:
                 g = self.generation_num
                 if g < 30:  # 60k games
                     self.learning_rate = 0.025
-                    self.beta = 0.04
-                    self.soft_update_rate = 0.03
+                    self.beta = 0.005
+                    self.soft_update_rate = 0.01
 
                 if 30 <= g < 75:  # 150k games
                     self.learning_rate = 0.0075
-                    self.beta = 0.01
-                    self.soft_update_rate = 0.2
+                    self.beta = 0.0025
+                    self.soft_update_rate = 0.1
 
                 if 75 <= g < 250:  # 500k games
                     self.learning_rate = 0.002
-                    self.beta = 0.0006
+                    self.beta = 0.001
                     self.soft_update_rate = 0.1
 
                 if 250 <= g < 500:  # 1M games
                     self.learning_rate = 0.00075
-                    self.beta = 0.0001
+                    self.beta = 0.001
                     self.soft_update_rate = 0.1
 
                 if self.generation_num >= 500:  # 5M games
                     self.learning_rate = 0.0001
-                    self.beta = 0.000075
+                    self.beta = 0.0005
                     self.soft_update_rate = 0.1
                 del g
 
@@ -176,13 +178,13 @@ class PPOModel:
                 # Check on our workers
                 ready = []
                 if len(futures) > 0:
-                    ready, futures = ray.wait(futures, timeout=0.1)
+                    ready, futures = ray.wait(futures, timeout=0.001)
 
                 # If render worker is done, we must add another
                 if renderer not in futures:
                     renderer = None
 
-                # Set up new workers to play 100 games then die
+                # Set up new workers to play some games then die
                 pi_lz4 = coax.utils.dumps(self.pi_behavior)
                 while len(futures) < num_workers:
                     t = self.render_period if renderer is None else -1
@@ -203,14 +205,15 @@ class PPOModel:
                     self.episode_number += games_per_worker
 
                 # Learn
-                if len(self.buffer) >= 15000:
-                    transition_batch = self.buffer.sample(batch_size=batch_size)
-                    metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
-                    metrics_pi = self.ppo_clip.update(transition_batch, td_error)
-                    self.record_metrics(metrics_pi)
-                    self.record_metrics(metrics_v)
+                if len(self.buffer) >= 1000:
+                    for _ in range(batch_size // mini_batch_size):
+                        transition_batch = self.buffer.sample(batch_size=mini_batch_size)
+                        metrics_v, td_error = self.simple_td.update(transition_batch, return_td_error=True)
+                        metrics_pi = self.ppo_clip.update(transition_batch, td_error)
+                        self.record_metrics(metrics_pi)
+                        self.record_metrics(metrics_v)
 
-                    self.buffer.update(transition_batch.idx, td_error)
+                        # self.buffer.update(transition_batch.idx, td_error) # Used for prioritized replay
                     batches_this_gen += 1
 
                 if batches_this_gen >= batches_per_gen:
@@ -231,14 +234,14 @@ class PPOModel:
         for batch in transition_batches:
             for chunk in coax.utils.chunks_pow2(batch):
                 ct += chunk.batch_size
-                td_error = self.simple_td.td_error(chunk)
-                self.buffer.add(chunk, td_error)
+                # td_error = self.simple_td.td_error(chunk) # For prioritized replay
+                self.buffer.add(chunk)
 
         return ct
 
     def checkpoint(self):
         print("======Checkpoint {}============================".format(self.generation_num))
-        filename = ".checkpoint/{}_gen_{}.pkl.lz4".format(self.name, self.generation_num)
+        filename = ".checkpoint/{}/{}_gen_{}.pkl.lz4".format(self.name, self.name, self.generation_num)
 
         coax.utils.dump(
             [self.name, self.episode_number, self.generation_num, self.pi, self.pi_behavior, self.v, self.v_targ,
@@ -272,12 +275,14 @@ class PPOModel:
         self.tensorboard.add_scalar("generation", gen, global_step=eps)
 
         games = score['games']
-        rates_dict = {name: [x / y for x, y in zip(results, games)]
-                      for name, results in score.items() if name != 'games'}
 
-        for name, rates in rates_dict.items():
-            for i, rate in enumerate(rates):
-                self.tensorboard.add_scalar("ScoreVsRandom/{}/{}_opponents".format(name, i), rate, global_step=eps)
+        rates_dict = {name: (v/games) if games != 0 else 0 for name, v in score.items() if name != "games"}
+
+        # rates_dict = {name: [x / y for x, y in zip(results, games)]
+        #              for name, results in score.items() if name != 'games'}
+
+        for name, rate in rates_dict.items():
+            self.tensorboard.add_scalar("ScoreVsRandom/{}".format(name), rate, global_step=eps)
 
 
 @ray.remote
@@ -309,7 +314,7 @@ class ExperienceWorker:
         self.render_period = render_period
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=2, gamma=0.8) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=1, gamma=0.99) for agent in self.env.possible_agents}
 
     @property
     def policy(self):
@@ -332,24 +337,26 @@ class ExperienceWorker:
         last_render = 0.
 
         # Record vs random opponents
-        vs_random = {'win': [0] * len(self.env.possible_agents),
-                     'loss': [0] * len(self.env.possible_agents),
-                     'draw': [0] * len(self.env.possible_agents),
-                     'games': [0] * len(self.env.possible_agents)}
+        vs_random = {'win': 0,
+                     'loss': 0,
+                     'draw': 0,
+                     'games': 0}
 
         for i in range(n):
             # Episode start
-            obs = self.env.reset(i + seed_start)
+            obs = self.env.reset(i+seed_start)
 
             policies = {}
             policy_names = {}
 
-            # 3 games with random agents for every 25 without
-            random_agents = i % 28 if i % 28 in (1, 2, 3) else 0
+            # 3 games out of every 20 have random agents
+            random_agents = i % 20 if i % 20 in (1, 2, 3) else -1
+            random_agent_count = 0
             for j, agent in enumerate(self.env.agents):
-                if j < random_agents:
+                if j == random_agents:
                     policies[agent] = self.random_policy
                     policy_names[agent] = "Safe Random"
+                    random_agent_count += 1
                 else:
                     policies[agent] = self.policy
                     policy_names[agent] = "Pi Behavior"
@@ -371,39 +378,49 @@ class ExperienceWorker:
                 logps = {}
                 for agent in self.env.agents:
                     actions[agent], logps[agent] = policies.get(agent)(obs[agent], return_logp=True)
+                    if self.verbose and policies[agent] == self.policy:
+                        print(policies.get(agent).dist_params(obs[agent]))
 
                 live_agents = self.env.agents[:]
                 obs_next, rewards, terminations, truncations, _ = self.env.step(actions)
 
                 if self.verbose:
                     print(self.env.render())
+                    print("Rewards:\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                                                    for a, v in rewards.items()]))
+                    print("Log(p):\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                                                     for a, v in logps.items()]))
 
                 # Trace rewards
                 for agent in live_agents:
-                    self.tracers[agent].add(
-                        obs[agent],
-                        actions[agent],
-                        rewards[agent],
-                        terminations[agent] or truncations[agent],
-                        logps[agent]
-                    )
+                    if policies[agent] == self.policy:
+                        # Only policy actions get traced
+                        self.tracers[agent].add(
+                            obs[agent],
+                            actions[agent],
+                            rewards[agent],
+                            terminations[agent] or truncations[agent],
+                            logps[agent]
+                        )
                     cum_reward[agent] += rewards[agent]
 
                 obs = obs_next
 
             # After a game, flush the tracer and add all transitions to the buffer
-            for _, tracer in self.tracers.items():
-                transition_batches.append(tracer.flush())
+            for agent, tracer in self.tracers.items():
+                if policies[agent] == self.policy:
+                    transition_batches.append(tracer.flush())
 
             # Record how we did vs the random agent
             winner = self.env.game.winner()
-            if winner is None:
-                vs_random['draw'][random_agents] += 1
-            elif policy_names[winner] == 'Safe Random':
-                vs_random['loss'][random_agents] += 1
-            else:
-                vs_random['win'][random_agents] += 1
-            vs_random['games'][random_agents] += 1
+            if random_agent_count > 0:
+                if winner is None:
+                    vs_random['draw'] += 1
+                elif policy_names[winner] == 'Safe Random':
+                    vs_random['loss'] += 1
+                else:
+                    vs_random['win'] += 1
+                vs_random['games'] += 1
 
             if self.verbose:
                 print("===== End Generation {} Game ~{} ({} / {}) =============="
@@ -452,23 +469,18 @@ class SmartRandomPolicy:
             # Safe move exists, choose one from there
             possible_moves = safe_moves
 
-        # pi_behavior's probability distribution
-        logits = coax.utils.single_to_batch(self.pi.dist_params(obs))
-        dist = self.pi.proba_dist
-        rng = self.pi.rng  # Borrow this to save time
-
-        # We take a sample from pi_behavior and modify it so that it happened to pick our move
-        sample = dist.sample(logits, rng)
+        # Pick a uniform random move out of the safe ones
         move = random.choice(possible_moves)
-        sample = sample.at[0, 0].set(move)
 
-        # Logp is the log of the probability that pi would have given us this sample
-        logp = dist.log_proba(logits, sample)
-        logp = coax.utils.batch_to_single(logp)
+        if return_logp:
+            # pi_behavior is a categorical distribution, so we can get the prob of each move from logits
+            logits = self.pi.dist_params(obs)
+            logps = jax.nn.log_softmax(logits['logits'])
+            logp = logps[move]
 
-        # Finally, we clip logps that are too big to prevent the optimizer from going crazy.
-        if logp < -20:
-            logp = -20  # This is still equivalent to 2e-9 chance of happening
+        # Finally, we clip logps that are too big to prevent grads being computed to inf or nan
+        if logp < -10.:
+            logp = -10.
 
         if return_logp:
             return move, logp
@@ -477,9 +489,9 @@ class SmartRandomPolicy:
 
 
 m = PPOModel()
-if False:
+if True:
     m.build()
 else:
-    m.build_from_file(".checkpoint/[checkpoint_here].pkl.lz4")
+    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-22_0133_gen_28.pkl.lz4")
 
 m.learn(10000000)
