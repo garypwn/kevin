@@ -6,22 +6,22 @@ import jax
 
 class FrameStacking(BaseParallelWraper):
     """
-    Stac
+    Returns a tuple containing the current and previous observations. If it's turn 0, both entries are duplicates.
     """
+
     def seed(self, seed=None):
         return self.env.seed(seed)
-    
-    last: dict  # The last step's observation
+
+    last: dict | None = None  # The last step's observation
 
     def observation_space(self, agent):
         return spaces.Tuple([self.env.observation_space(agent), self.env.observation_space(agent)])
-    
+
     def reset(self, seed=None, return_info=False, options=None):
-        result = self.env.reset(seed)
+        result = self.env.reset(seed, return_info, options)
         self.agents = self.env.agents
 
-        self.last = {agent: jnp.zeros(self.env.observation_space(agent)).shape for agent in self.agents}
-
+        self.last = None
         if return_info:
             return result
         return self._wrap_obs(result)
@@ -34,11 +34,13 @@ class FrameStacking(BaseParallelWraper):
 
     def _wrap_obs(self, obs_dict):
 
-        for agent, obs in obs_dict.items():
-            obs_dict[agent] = spaces.flatten(self.env.observation_space(agent), obs)
+        if self.last is None:
+            self.last = obs_dict
 
-        return obs_dict
-    
+        result = {name: (obs, self.last[name]) for name, obs in obs_dict.items()}
+        self.last = obs_dict
+
+        return result
 
 
 class FlatteningWrapper(BaseParallelWraper):

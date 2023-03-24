@@ -4,6 +4,7 @@ import pstats
 import random
 import time
 from datetime import datetime
+from math import exp
 from typing import Callable
 
 import coax
@@ -18,7 +19,7 @@ from kevin.src.engine.board_updater import FixedBoardUpdater
 from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.model import model
-from kevin.src.model.model import Model, residual_body
+from kevin.src.model.model import Model
 
 
 class PPOModel:
@@ -144,17 +145,17 @@ class PPOModel:
                 # Remember 1 gen is anywhere between 1000 and 4000 games
                 g = self.generation_num
                 if g < 30:  # 60k games
-                    self.learning_rate = 0.001
-                    self.beta = 0.008
+                    self.learning_rate = 0.0001
+                    self.beta = 0.009
                     self.soft_update_rate = 0.01
 
                 if 30 <= g < 75:  # 150k games
-                    self.learning_rate = 0.00075
-                    self.beta = 0.003
+                    self.learning_rate = 0.0001
+                    self.beta = 0.006
                     self.soft_update_rate = 0.1
 
                 if 75 <= g < 250:  # 500k games
-                    self.learning_rate = 0.0002
+                    self.learning_rate = 0.0001
                     self.beta = 0.002
                     self.soft_update_rate = 0.1
 
@@ -164,7 +165,7 @@ class PPOModel:
                     self.soft_update_rate = 0.1
 
                 if self.generation_num >= 500:  # 5M games
-                    self.learning_rate = 0.00001
+                    self.learning_rate = 0.0001
                     self.beta = 0.0005
                     self.soft_update_rate = 0.1
                 del g
@@ -315,7 +316,7 @@ class ExperienceWorker:
         self.render_period = render_period
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=1, gamma=0.99) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=20, gamma=0.97) for agent in self.env.possible_agents}
 
     @property
     def policy(self):
@@ -350,8 +351,8 @@ class ExperienceWorker:
             policies = {}
             policy_names = {}
 
-            # 3 games out of every 20 have random agents
-            random_agents = i % 20 if i % 20 in (1, 2, 3) else -1
+            # 3 games out of every 30 have random agents
+            random_agents = i % 30 if i % 30 in (1, 2, 3) else -1
             random_agent_count = 0
             for j, agent in enumerate(self.env.agents):
                 if j == random_agents:
@@ -389,7 +390,7 @@ class ExperienceWorker:
                     print(self.env.render())
                     print("Rewards:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
                                                       for a, v in rewards.items()]))
-                    print("Log(p):\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                    print("Prob:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {exp(v):>.2f}"
                                                      for a, v in logps.items()]))
 
                 # Trace rewards
@@ -486,9 +487,9 @@ class SmartRandomPolicy:
 
 
 m = PPOModel()
-if True:
+if False:
     m.build()
 else:
-    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-22_0133_gen_28.pkl.lz4")
+    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-23_1855/kevin_v0.1_2023-03-23_1855_gen_16.pkl.lz4")
 
 m.learn(10000000)

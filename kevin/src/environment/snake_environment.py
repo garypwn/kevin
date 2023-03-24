@@ -76,14 +76,14 @@ class MultiSnakeEnv(ParallelEnv):
         observations = {agent: self.game.get_observation(agent) for agent in self.agents}
 
         snake_n = self.agents[0]
-        if not return_info:
-            self.temp_reset_result = observations[snake_n]
-            return observations
-
-        else:
+        if return_info:
             infos = {agent: self.game.get_info(agent) for agent in self.agents}
             self.temp_reset_result = infos[snake_n]
             return infos
+
+        else:
+            self.temp_reset_result = observations[snake_n]
+            return observations
 
     def seed(self, seed=None):
         if seed is not None:
