@@ -42,6 +42,9 @@ class FrameStacking(BaseParallelWraper):
 
         return result
 
+    def winner(self):
+        return self.env.winner()
+
 
 class FlatteningWrapper(BaseParallelWraper):
 

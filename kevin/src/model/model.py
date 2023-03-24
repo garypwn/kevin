@@ -98,7 +98,9 @@ def residual_body(x, is_training):
 
     ])
 
-    boards = jnp.float32(jnp.moveaxis(x, 1, 3))
+    # Input has shape [7, 23, 23] and we want to concatenate stacked obs along the last axis
+    boards = jnp.concatenate([x[0], x[1]], -1)
+    boards = jnp.float32(jnp.moveaxis(boards, 1, 3))
     boards = 10 * jnp.log(1 + jnp.log(1 + boards))  # Transform to make zeros a bigger deal
 
     return conv(boards)

@@ -18,6 +18,7 @@ from kevin.src.engine import utils
 from kevin.src.engine.board_updater import FixedBoardUpdater
 from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
+from kevin.src.environment.wrapper import FrameStacking
 from kevin.src.model import model
 from kevin.src.model.model import Model
 
@@ -54,8 +55,8 @@ class PPOModel:
 
         self.updater = FixedBoardUpdater(11, 11)
         self.game = PythonGameState(updater=self.updater)
-        self.env = RewindingEnv(self.game)
-        self.gym_env = self.env.dummy_gym_environment
+        self.env = FrameStacking(RewindingEnv(self.game))
+        self.gym_env = self.env.env.dummy_gym_environment
 
         self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=500000)
 
@@ -325,7 +326,7 @@ class ExperienceWorker:
     @policy.setter
     def policy(self, policy):
         self._policy = policy
-        self.random_policy = SmartRandomPolicy(policy, self.env.dummy_gym_environment)
+        self.random_policy = SmartRandomPolicy(policy, self.env.unwrapped.dummy_gym_environment)
 
     def __call__(self, n):
         """
@@ -487,7 +488,7 @@ class SmartRandomPolicy:
 
 
 m = PPOModel()
-if False:
+if True:
     m.build()
 else:
     m.build_from_file(".checkpoint/kevin_v0.1_2023-03-23_1855/kevin_v0.1_2023-03-23_1855_gen_16.pkl.lz4")
