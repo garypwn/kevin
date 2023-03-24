@@ -5,13 +5,16 @@ import jax
 
 
 class FrameStacking(BaseParallelWraper):
+    """
+    Stac
+    """
     def seed(self, seed=None):
-        retur self.env.seed(seed)
+        return self.env.seed(seed)
     
     last: dict  # The last step's observation
 
     def observation_space(self, agent):
-        return spaces.tuple([self.env.observation_space(agent), self.env.observation_space(agent)]
+        return spaces.Tuple([self.env.observation_space(agent), self.env.observation_space(agent)])
     
     def reset(self, seed=None, return_info=False, options=None):
         result = self.env.reset(seed)

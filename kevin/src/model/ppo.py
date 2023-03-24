@@ -144,27 +144,27 @@ class PPOModel:
                 # Remember 1 gen is anywhere between 1000 and 4000 games
                 g = self.generation_num
                 if g < 30:  # 60k games
-                    self.learning_rate = 0.025
-                    self.beta = 0.005
+                    self.learning_rate = 0.001
+                    self.beta = 0.008
                     self.soft_update_rate = 0.01
 
                 if 30 <= g < 75:  # 150k games
-                    self.learning_rate = 0.0075
-                    self.beta = 0.0025
+                    self.learning_rate = 0.00075
+                    self.beta = 0.003
                     self.soft_update_rate = 0.1
 
                 if 75 <= g < 250:  # 500k games
-                    self.learning_rate = 0.002
-                    self.beta = 0.001
+                    self.learning_rate = 0.0002
+                    self.beta = 0.002
                     self.soft_update_rate = 0.1
 
                 if 250 <= g < 500:  # 1M games
-                    self.learning_rate = 0.00075
+                    self.learning_rate = 0.0001
                     self.beta = 0.001
                     self.soft_update_rate = 0.1
 
                 if self.generation_num >= 500:  # 5M games
-                    self.learning_rate = 0.0001
+                    self.learning_rate = 0.00001
                     self.beta = 0.0005
                     self.soft_update_rate = 0.1
                 del g
@@ -276,7 +276,7 @@ class PPOModel:
 
         games = score['games']
 
-        rates_dict = {name: (v/games) if games != 0 else 0 for name, v in score.items() if name != "games"}
+        rates_dict = {name: (v / games) if games != 0 else 0 for name, v in score.items() if name != "games"}
 
         # rates_dict = {name: [x / y for x, y in zip(results, games)]
         #              for name, results in score.items() if name != 'games'}
@@ -293,6 +293,7 @@ def play_games(pi, num_games, updater_ref, render_period=-1, stats=None):
 
 class ExperienceWorker:
     verbose = False
+    ultra_verbose = False
     generation_num = 0
     episode_num = 0
 
@@ -344,7 +345,7 @@ class ExperienceWorker:
 
         for i in range(n):
             # Episode start
-            obs = self.env.reset(i+seed_start)
+            obs = self.env.reset(i + seed_start)
 
             policies = {}
             policy_names = {}
@@ -378,7 +379,7 @@ class ExperienceWorker:
                 logps = {}
                 for agent in self.env.agents:
                     actions[agent], logps[agent] = policies.get(agent)(obs[agent], return_logp=True)
-                    if self.verbose and policies[agent] == self.policy:
+                    if self.ultra_verbose and policies[agent] == self.policy:
                         print(policies.get(agent).dist_params(obs[agent]))
 
                 live_agents = self.env.agents[:]
@@ -386,8 +387,8 @@ class ExperienceWorker:
 
                 if self.verbose:
                     print(self.env.render())
-                    print("Rewards:\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
-                                                    for a, v in rewards.items()]))
+                    print("Rewards:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                                                      for a, v in rewards.items()]))
                     print("Log(p):\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
                                                      for a, v in logps.items()]))
 
