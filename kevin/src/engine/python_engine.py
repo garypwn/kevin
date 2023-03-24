@@ -9,7 +9,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jrand
 
-from kevin.src.engine.board_updater import RotatingBoardUpdater
+from kevin.src.engine.board_updater import RotatingBoardUpdater, BoardUpdater
 from kevin.src.engine.snake_engine import GameState
 
 
@@ -21,6 +21,7 @@ class Snake:
     id: str
     health: int
     body: list[tuple[int, int]]
+    death_location: tuple[int, int] | None = None
 
 
 class PythonGameState(GameState):
@@ -33,7 +34,7 @@ class PythonGameState(GameState):
     width: Final[int] = 11
 
     #  Board updater fn
-    updater: RotatingBoardUpdater
+    updater: BoardUpdater
 
     #  State
     turn_num: int = 0
@@ -42,7 +43,6 @@ class PythonGameState(GameState):
     rng_seed: int
 
     snakes: dict[str: Snake]
-    dead_snakes: dict[str: Snake]
 
     food: list[tuple[int, int]]
     hazards: list[tuple[int, int]] = []
@@ -127,7 +127,6 @@ class PythonGameState(GameState):
         new.single_player_mode = self.single_player_mode
         new.rng_key = self.rng_key.copy()
         new.snakes = copy.deepcopy(self.snakes)
-        new.dead_snakes = copy.deepcopy(self.dead_snakes)
         new.food = copy.deepcopy(self.food)
         new.hazards = copy.deepcopy(self.hazards)
         new.branch_name = copy.deepcopy(self.branch_name)
@@ -253,9 +252,10 @@ class PythonGameState(GameState):
         #  Eliminate snakes
         for name in self.recent_eliminations:
             # Save the dead snake for later
-            cpy = copy.deepcopy(self.snakes[name])
-            self.dead_snakes[name] = cpy
-            self.snakes[name].body = []
+            snake = self.snakes[name]
+            snake.death_location = snake[0]
+            snake.body = []
+            snake.health = 0
 
         if len(self.recent_eliminations) > 0 and self.save_replays and self.turn_num > 12:
             self._internal_replay_flag = True
@@ -289,14 +289,12 @@ class PythonGameState(GameState):
         # Boards should be in order with our snake as number 0
         ordered_snake_boards = [self.snake_boards["snake_{}".format(ordering[n])] for n in nums]
 
-        if self._eliminated(snake_id):
-            snake = self.dead_snakes[snake_id]
-        else:
-            snake = self.snakes[snake_id]
+        snake = self.snakes[snake_id]
+        body = snake.body if snake.death_location is None else [snake.death_location]
 
-        walls = self.updater.walls_pov(snake.body)
-        food = self.updater.snake_pov(snake.body, self.food_board)
-        povs = [self.updater.snake_pov(snake.body, board)
+        walls = self.updater.walls_pov(body)
+        food = self.updater.snake_pov(body, self.food_board)
+        povs = [self.updater.snake_pov(body, board)
                 for board in ordered_snake_boards]
 
         meta = self.meta_factory(snake_id)
@@ -366,7 +364,7 @@ class PythonGameState(GameState):
 
         if self._eliminated(snake_id):
             # return -4.  # Losing gives a static penalty
-            return (defeat_penalty) * scale
+            return defeat_penalty * scale
 
         #  Check if last snake alive
         alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
@@ -427,7 +425,6 @@ class PythonGameState(GameState):
         #  Reset all state
         self.turn_num = 0
         self.snakes = {}
-        self.dead_snakes = {}
         self.pending_moves = {}
         for i in range(self.player_count):
             name = "snake_" + str(i)
@@ -568,7 +565,7 @@ class MetaObservationFactory:
                 self.alive_snakes.add(name)
 
         self.possible_targets = {name: get_target_pts(game, game.snakes[name]) for name in self.alive_snakes}
-        self.all_safe_moves = {name: self.safe_moves(name) for name in self.alive_snakes}
+        self.all_safe_moves = {name: self.safe_moves(name) for name in self.game.snakes.keys()}
 
     def __call__(self, pov_name: str):
         ordering = _snake_order(self.game, pov_name)
@@ -577,10 +574,6 @@ class MetaObservationFactory:
 
         # Try to pack it all into a viewport
         obs = jnp.zeros([viewport, viewport], dtype=jnp.int16)
-
-        # Dead snakes don't care about meta obs
-        if pov_name not in self.alive_snakes:
-            return obs
 
         # Try a known 11x11 four snake arrangement
         if self.game.player_count == 4 and viewport == 23:
@@ -594,10 +587,9 @@ class MetaObservationFactory:
 
                 line = [turn] * 3
 
-                if name in self.alive_snakes:
-                    line += [self.game.snakes[name].health] * 4
-                    for move in self.all_safe_moves[name]:
-                        line += [move] * 4
+                line += [self.game.snakes[name].health] * 4
+                for move in self.all_safe_moves[name]:
+                    line += [move] * 4
 
                 lines = jnp.array([line]*5, dtype=jnp.int16)
                 obs = jax.lax.dynamic_update_slice(obs, lines, (5 * i, 0))
@@ -609,6 +601,10 @@ class MetaObservationFactory:
 
     def safe_moves(self, me_id: str):
         """Returns a list of safe moves [0,1,2] for a snake, with 0 if unsafe, 8 if  guaranteed safe."""
+
+        if self.game.snakes[me_id].death_location is not None:
+            # Dead snakes have no safe moves
+            return [0, 0, 0, 0]
 
         targets = self.possible_targets[me_id]
         body_middles = [snake.body[0:-1] for _, snake in self.game.snakes.items()]

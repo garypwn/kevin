@@ -77,7 +77,7 @@ def test_count_initial_food_and_snakes_1player(seed: int):
 def test_snake_heads_move(seed: int):
     game = create_game(seed)
     print(game.snakes)
-    moves = {"snake_{}".format(i) : i % 3 for i in range(4)}
+    moves = {"snake_{}".format(i): i % 3 for i in range(4)}
     print(game.get_observation("snake_0")["boards"][0])
 
     op = {"save": True}
@@ -483,5 +483,19 @@ def test_compare_obs_jit_performance():
 def test_board_perspectives():
     game = create_game(0)
     game.snakes_array = [0, 1, 2, 3]
+    for name, _ in game.snakes.items():
+        print(game.get_observation(name))
+
+
+def test_observation_for_dead_snakes():
+    game = create_game(0)
+
+    # Kill a snake to the wall
+    game.snakes["snake_0"].body = []
+    game.snakes["snake_0"].death_location = (-1, 0)
+    game.snakes["snake_0"].health = 0
+
+    game.update_board()
+
     for name, _ in game.snakes.items():
         print(game.get_observation(name))

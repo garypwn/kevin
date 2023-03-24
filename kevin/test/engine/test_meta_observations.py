@@ -9,7 +9,7 @@ def make_board():
     game = PythonGameState(0, updater=updater)
     env = MultiSnakeEnv(game)
     env.fancy_render = True
-    return env
+    return env, game
 
 
 def test_possible_moves():
@@ -21,8 +21,7 @@ def test_possible_moves():
 
 
 def test_safe_targets_walls_and_body():
-    env = make_board()
-    game = env.game
+    env, game = make_board()
     game.snakes["snake_0"].body = [(0, 5), (0, 4), (1, 4), (1, 5)]
     game.snakes["snake_3"].body = [(5, 0), (5, 1), (4, 1), (4, 0)]
     game.update_board()
@@ -41,8 +40,7 @@ def test_safe_targets_walls_and_body():
 
 
 def test_safe_targets_heads():
-    env = make_board()
-    game = env.game
+    env, game = make_board()
     game.snakes["snake_0"].body = [(4, 5), (3, 5), (2, 5)]
     game.snakes["snake_1"].body = [(5, 5), (6, 5)]
     game.snakes["snake_2"].body = [(4, 7), (4, 8), (4, 9)]
@@ -59,8 +57,7 @@ def test_safe_targets_heads():
 
 
 def test_out_of_hp_safe_targets():
-    env = make_board()
-    game = env.game
+    env, game = make_board()
     game.snakes["snake_0"].body = [(0, 5), (0, 4), (1, 4), (1, 3)]
     game.snakes["snake_0"].health = 1
     game.food = [(0, 6)]
@@ -76,9 +73,23 @@ def test_out_of_hp_safe_targets():
 
 
 def test_meta_observation():
-    env = make_board()
-    game = env.game
+    env, game = make_board()
     game.snakes["snake_0"].body = [(4, 5), (3, 5), (2, 5)]
+    game.snakes["snake_1"].body = [(5, 5), (6, 5)]
+    game.snakes["snake_2"].body = [(4, 7), (4, 8), (4, 9)]
+    game.snakes["snake_3"].body = [(4, 3), (4, 2)]
+    game.update_board()
+    print(env.render())
+    meta = MetaObservationFactory(game)
+
+    print(meta("snake_0"))
+
+
+def test_dead_snake_observation():
+    env, game = make_board()
+    game.snakes["snake_0"].body = []
+    game.snakes["snake_0"].death_location = (-1, 0)  # Pretend it ran into the wall
+    game.snakes["snake_0"].health = 0
     game.snakes["snake_1"].body = [(5, 5), (6, 5)]
     game.snakes["snake_2"].body = [(4, 7), (4, 8), (4, 9)]
     game.snakes["snake_3"].body = [(4, 3), (4, 2)]
