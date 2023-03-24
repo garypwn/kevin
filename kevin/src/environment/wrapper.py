@@ -3,11 +3,18 @@ from pettingzoo.utils import BaseParallelWraper
 import jax.numpy as jnp
 import jax
 
+from kevin.src.environment.snake_environment import DummyGymEnv
+
 
 class FrameStacking(BaseParallelWraper):
     """
     Returns a tuple containing the current and previous observations. If it's turn 0, both entries are duplicates.
     """
+
+    def __init__(self, env):
+        super().__init__(env)
+        self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"],
+                                                 None, None)
 
     def seed(self, seed=None):
         return self.env.seed(seed)

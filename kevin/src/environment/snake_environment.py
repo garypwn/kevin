@@ -4,7 +4,6 @@ from typing import Optional, Tuple, Dict, List, SupportsFloat, Any, Callable
 from gymnasium import spaces, Env, Space
 from gymnasium.core import RenderFrame, ActType, ObsType
 from jax import numpy as jnp
-import numpy as np
 from pettingzoo import ParallelEnv
 from pettingzoo.utils.env import ObsDict, ActionDict
 
@@ -50,8 +49,7 @@ class MultiSnakeEnv(ParallelEnv):
         self.action_spaces = {agent: self.action_space(agent) for agent in self.possible_agents}
         self.observation_spaces = {agent: self.observation_space(agent) for agent in self.agents}
 
-        self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"],
-                                                 self.get_temp_step_result, self.get_temp_reset_result)
+        self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"])
 
     def action_space(self, agent):
         return spaces.Discrete(4)
@@ -143,7 +141,7 @@ class DummyGymEnv(Env):
         To record metrics properly, this must be called after the base environment
         """
 
-        return self.step_fn()
+        raise NotImplementedError
 
     def reset(self, *, seed: int | None = None,
               options: dict[str, Any] | None = None, ) -> tuple[ObsType, dict[str, Any]]:
@@ -151,12 +149,13 @@ class DummyGymEnv(Env):
         To record metrics properly, this must be called after the base environment
         """
 
-        return self.reset_fn()
-
-    def render(self) -> RenderFrame | list[RenderFrame] | None:
         raise NotImplementedError
 
-    def __init__(self, action_space, observation_space, step_fn, reset_fn):
+    def render(self) -> RenderFrame | list[RenderFrame] | None:
+
+        raise NotImplementedError
+
+    def __init__(self, action_space, observation_space):
         r"""
         Coax (and other RL libraries) often take a gym environment to validate action and observation spaces.
         Since the spaces are the same for each snake, we can create a dummy gym environment
@@ -167,5 +166,3 @@ class DummyGymEnv(Env):
 
         self.action_space = action_space
         self.observation_space = observation_space
-        self.step_fn = step_fn
-        self.reset_fn = reset_fn

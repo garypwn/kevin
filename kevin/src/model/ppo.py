@@ -56,7 +56,7 @@ class PPOModel:
         self.updater = FixedBoardUpdater(11, 11)
         self.game = PythonGameState(updater=self.updater)
         self.env = FrameStacking(RewindingEnv(self.game))
-        self.gym_env = self.env.env.dummy_gym_environment
+        self.gym_env = self.env.dummy_gym_environment
 
         self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=500000)
 
@@ -326,7 +326,7 @@ class ExperienceWorker:
     @policy.setter
     def policy(self, policy):
         self._policy = policy
-        self.random_policy = SmartRandomPolicy(policy, self.env.unwrapped.dummy_gym_environment)
+        self.random_policy = SmartRandomPolicy(policy, self.env.dummy_gym_environment)
 
     def __call__(self, n):
         """
