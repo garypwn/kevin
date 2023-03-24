@@ -3,7 +3,7 @@ from pettingzoo.utils import BaseParallelWraper
 import jax.numpy as jnp
 import jax
 
-from kevin.src.environment.snake_environment import DummyGymEnv
+from kevin.src.environment.snake_environment import DummyGymEnv, MultiSnakeEnv
 
 
 class FrameStacking(BaseParallelWraper):
@@ -11,18 +11,30 @@ class FrameStacking(BaseParallelWraper):
     Returns a tuple containing the current and previous observations. If it's turn 0, both entries are duplicates.
     """
 
-    def __init__(self, env):
+    def __init__(self, env: MultiSnakeEnv):
         super().__init__(env)
-        self.dummy_gym_environment = DummyGymEnv(self.action_spaces["snake_0"], self.observation_spaces["snake_0"],
-                                                 None, None)
+        self.dummy_gym_environment = DummyGymEnv(self.action_space("snake_0"), self.observation_space("snake_0"))
 
     def seed(self, seed=None):
         return self.env.seed(seed)
 
     last: dict | None = None  # The last step's observation
 
+    @property
+    def game(self):
+        return self.env.game
+
+    @game.setter
+    def game(self, game):
+        self.env.game = game
+
     def observation_space(self, agent):
-        return spaces.Tuple([self.env.observation_space(agent), self.env.observation_space(agent)])
+        space = self.env.observation_space(agent)
+        x1, x2, x3 = space.shape
+        shape = (x1, x2, 2*x3)
+        game = self.env.unwrapped.game
+
+        return spaces.Box(0, game.width * game.height, shape, dtype=space.dtype)
 
     def reset(self, seed=None, return_info=False, options=None):
         result = self.env.reset(seed, return_info, options)
@@ -44,7 +56,7 @@ class FrameStacking(BaseParallelWraper):
         if self.last is None:
             self.last = obs_dict
 
-        result = {name: (obs, self.last[name]) for name, obs in obs_dict.items()}
+        result = {name: jnp.concatenate([obs, self.last[name]], 2) for name, obs in obs_dict.items()}
         self.last = obs_dict
 
         return result

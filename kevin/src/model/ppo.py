@@ -23,6 +23,9 @@ from kevin.src.model import model
 from kevin.src.model.model import Model
 
 
+def make_environment(game):
+    return FrameStacking(RewindingEnv(game))
+
 class PPOModel:
     # set some env vars
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
@@ -55,7 +58,7 @@ class PPOModel:
 
         self.updater = FixedBoardUpdater(11, 11)
         self.game = PythonGameState(updater=self.updater)
-        self.env = FrameStacking(RewindingEnv(self.game))
+        self.env = make_environment(self.game)
         self.gym_env = self.env.dummy_gym_environment
 
         self.buffer = coax.experience_replay.SimpleReplayBuffer(capacity=500000)
@@ -312,7 +315,7 @@ class ExperienceWorker:
         self.episode_num = stats["episode_num"] if stats is not None else 0
         self.generation_num = stats["generation_num"] if stats is not None else 0
 
-        self.env = RewindingEnv(PythonGameState(updater=updater))
+        self.env = make_environment(PythonGameState(updater=updater))
         self.policy = coax.utils.loads(pi)
         self.render_period = render_period
 
@@ -392,7 +395,7 @@ class ExperienceWorker:
                     print("Rewards:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
                                                       for a, v in rewards.items()]))
                     print("Prob:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {exp(v):>.2f}"
-                                                     for a, v in logps.items()]))
+                                                   for a, v in logps.items()]))
 
                 # Trace rewards
                 for agent in live_agents:

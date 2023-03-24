@@ -33,3 +33,13 @@ def test_obs_stacking_wrapper():
 
     assert jnp.array_equal(obs_3[1], obs_2[0])
     assert not jnp.array_equal(obs_3[0], obs_2[1])
+
+
+def test_obs_stacking_space():
+    env, game = create_env()
+    w_env = FrameStacking(env)
+    obs = w_env.reset()['snake_0']
+    space = w_env.observation_space('snake_0')
+    assert obs in space
+    print(space)
+    assert w_env.dummy_gym_environment.observation_space == space
