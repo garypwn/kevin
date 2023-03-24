@@ -18,7 +18,7 @@ class Model:
         logits = hk.Sequential([
             hk.Flatten(),
             hk.Linear(256),
-            hk.Linear(self.action_space.n, name="pi_head_output")
+            hk.Linear(self.action_space.n, name="pi_head_output", w_init=jnp.zeros)
         ])
         return {'logits': logits(self.body(S, is_training))}
 
@@ -26,7 +26,7 @@ class Model:
         value = hk.Sequential([
             hk.Flatten(),
             hk.Linear(256),
-            hk.Linear(1, name="v_head_output"),
+            hk.Linear(1, name="v_head_output", w_init=jnp.zeros),
             jnp.ravel
         ])
         result = self.body(S, is_training)
@@ -99,5 +99,6 @@ def residual_body(x, is_training):
     ])
 
     boards = jnp.float32(jnp.moveaxis(x, 1, 3))
+    boards = 10 * jnp.log(1 + jnp.log(1 + boards))  # Transform to make zeros a bigger deal
 
     return conv(boards)

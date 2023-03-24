@@ -137,7 +137,7 @@ class PPOModel:
             # 128 batches x 256 transitions / 64-128 transitions per game. That's around 1-2k games per gen.
             batches_per_gen = 128
             batch_size = 256
-            mini_batch_size = 32  # Set this to whatever your gpu can handle
+            mini_batch_size = 128  # Set this to whatever your gpu can handle
             while True:
 
                 # Anneal learning rate and other hypers
@@ -393,23 +393,20 @@ class ExperienceWorker:
 
                 # Trace rewards
                 for agent in live_agents:
-                    if policies[agent] == self.policy:
-                        # Only policy actions get traced
-                        self.tracers[agent].add(
-                            obs[agent],
-                            actions[agent],
-                            rewards[agent],
-                            terminations[agent] or truncations[agent],
-                            logps[agent]
-                        )
+                    self.tracers[agent].add(
+                        obs[agent],
+                        actions[agent],
+                        rewards[agent],
+                        terminations[agent] or truncations[agent],
+                        logps[agent]
+                    )
                     cum_reward[agent] += rewards[agent]
 
                 obs = obs_next
 
             # After a game, flush the tracer and add all transitions to the buffer
             for agent, tracer in self.tracers.items():
-                if policies[agent] == self.policy:
-                    transition_batches.append(tracer.flush())
+                transition_batches.append(tracer.flush())
 
             # Record how we did vs the random agent
             winner = self.env.game.winner()
@@ -478,11 +475,10 @@ class SmartRandomPolicy:
             logps = jax.nn.log_softmax(logits['logits'])
             logp = logps[move]
 
-        # Finally, we clip logps that are too big to prevent grads being computed to inf or nan
-        if logp < -10.:
-            logp = -10.
+            # Finally, we clip logps that are too big to prevent grads being computed to inf or nan
+            if logp < -10.:
+                logp = -10.
 
-        if return_logp:
             return move, logp
         else:
             return move
