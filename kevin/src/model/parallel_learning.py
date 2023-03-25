@@ -18,10 +18,9 @@ from kevin.src.model import func_approximator
 from kevin.src.model.dqn import DeepQ
 from kevin.src.model.func_approximator import FuncApproximator
 from kevin.src.model.model import Model
-from kevin.src.model.ppo import PPO
 
 RENDER_PERIOD = 10.  # How often to render a game in seconds
-CHECKPOINT_PERIOD = 3  # How often to checkpoint in model generations
+CHECKPOINT_PERIOD = 8  # How often to checkpoint in model generations
 
 
 def make_environment(game):
@@ -119,7 +118,7 @@ class ParallelLearning:
                     result = ray.get(future)
                     batches = result['transitions']
                     print("Received {} transition batches from worker.".format(len(batches)))
-                    self.log_scoreboard(result['episode_num'], result['gen'], result['score'])
+                    self.log_scoreboard(self.model.transitions_processed, result)
                     trans_added = self.model.add_transitions(batches)
                     print("Processed {} transitions to buffer. "
                           "Buffer {} / {}.".format(trans_added, self.model.buffer_len, self.model.buffer_capacity))
@@ -134,8 +133,11 @@ class ParallelLearning:
                     if g % CHECKPOINT_PERIOD == 0 and g != 0:
                         self.checkpoint()
 
-    def log_scoreboard(self, eps, gen, score):
-        self.tensorboard.add_scalar("generation", gen, global_step=eps)
+    def log_scoreboard(self, eps, stats):
+
+        # Log score vs random
+        gen = stats['gen']
+        score = stats['score']
 
         games = score['games']
 
@@ -146,6 +148,14 @@ class ParallelLearning:
 
         for name, rate in rates_dict.items():
             self.tensorboard.add_scalar("ScoreVsRandom/{}".format(name), rate, global_step=eps)
+
+        # Log generation, number of episodes, transitions
+        eps_played = stats["episodes_played"]
+        self.tensorboard.add_scalar("stats/generation", gen, global_step=eps)
+        self.tensorboard.add_scalar("stats/transitions_per_episode",
+                                    stats["transition_count"] / eps_played, global_step=eps)
+        self.tensorboard.add_scalar("stats/avg_game_length", stats["turns_played"] / eps_played, global_step=eps)
+        self.tensorboard.add_scalar("stats/avg_winner_size", stats["avg_winner_length"], global_step=eps)
 
 
 @ray.remote
@@ -207,6 +217,11 @@ class ExperienceWorker:
                      'draw': 0,
                      'games': 0}
 
+        # Record total number of transitions
+        transitions = 0
+        turns_played = 0
+        winner_sizes = []
+
         for i in range(n):
             # Episode start
             obs = self.env.reset(i + seed_start)
@@ -214,8 +229,8 @@ class ExperienceWorker:
             policies = {}
             policy_names = {}
 
-            # 3 games out of every 30 have random agents
-            random_agents = i % 30 if i % 30 in (1, 2, 3) else -1
+            # 3 games out of every 10 have random agents
+            random_agents = i % 10 if i % 10 in (1, 2, 3) else -1
             random_agent_count = 0
             for j, agent in enumerate(self.env.agents):
                 if j == random_agents:
@@ -272,10 +287,13 @@ class ExperienceWorker:
                     cum_reward[agent] += rewards[agent]
 
                 obs = obs_next
+                turns_played += 1
 
             # After a game, flush the tracer and add all transitions to the buffer
             for agent, tracer in self.tracers.items():
-                transition_batches.append(tracer.flush())
+                t = tracer.flush()
+                transition_batches.append(t)
+                transitions += t.batch_size
 
             # Record how we did vs the random agent
             winner = self.env.game.winner()
@@ -294,6 +312,7 @@ class ExperienceWorker:
 
                 if winner is not None:
                     print("Result:\t{} {} win!".format(utils.render_symbols[winner]["head"], winner))
+                    winner_sizes.append(len(self.env.game.snakes[winner].body))
                 else:
                     print("Result: Draw.")
 
@@ -308,7 +327,11 @@ class ExperienceWorker:
             "transitions": transition_batches,
             "gen": self.generation_num,
             "episode_num": self.episode_num + n,
-            "score": vs_random
+            "score": vs_random,
+            "episodes_played": n,
+            "transition_count": transitions,
+            "turns_played": turns_played,
+            "avg_winner_length": 0 if len(winner_sizes) < 1 else sum(winner_sizes) / len(winner_sizes)
         }
 
 

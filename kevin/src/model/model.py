@@ -31,7 +31,7 @@ class Model(ABC):
         """
         Updates the model on a number of transitions sampled from those added with add_transitions()
         @param batch_size: The number of transitions to learn form
-        @return:
+        @return: True if a new generation was reached
         """
         pass
 

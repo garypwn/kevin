@@ -109,6 +109,8 @@ class DeepQ(Model):
         if self._transitions_this_gen >= self.transitions_per_gen:
             self.generation += 1
             self._transitions_this_gen = 0
+            return True
+        return False
 
     def add_transitions(self, batches: list[coax.reward_tracing.TransitionBatch]):
         ct = 0

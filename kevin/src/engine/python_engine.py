@@ -260,6 +260,10 @@ class PythonGameState(GameState):
         if len(self.recent_eliminations) > 0 and self.save_replays and self.turn_num > 12:
             self._internal_replay_flag = True
 
+        roll = jrand.randint(self.rng_key, [1], 0, 100)[0]
+        if self.save_replays and self.turn_num > 12 and roll > 95:
+            self._internal_replay_flag = True
+
     def _place_food(self, rng):
         r"""
         Places new food on the board. It seems like default BS keep 1 food at all times, and have a 15% chance
