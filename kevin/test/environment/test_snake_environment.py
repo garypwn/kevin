@@ -1,6 +1,7 @@
 import cProfile
 import pstats
 
+import coax
 import pytest
 from pettingzoo.test import parallel_api_test, parallel_seed_test, performance_benchmark
 from pettingzoo.utils import parallel_to_aec
@@ -91,3 +92,27 @@ def test_flattening_wrapper():
 
     for agent in wrapped_env.agents:
         assert obs[agent] in wrapped_env.observation_space(agent)
+
+
+def test_value_func():
+    game = PythonGameState()
+    env = MultiSnakeEnv(game)
+
+    import haiku as hk
+    import jax.numpy as jnp
+    import jax
+
+    def val(S, is_training):
+        value = hk.Sequential([
+            jnp.float32,
+            hk.Flatten(),
+            hk.Linear(256), jax.nn.relu,
+            hk.Linear(1, name="v_head_output", w_init=jnp.zeros),
+            jnp.ravel
+        ])
+        return value(S)
+
+    v = coax.V(val, env.dummy_gym_environment)
+    print(v(env.observation_space('snake_0').sample()))
+    print(v(env.observation_space('snake_0').sample()))
+    print(v(env.observation_space('snake_0').sample()))

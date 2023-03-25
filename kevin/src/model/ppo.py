@@ -26,10 +26,14 @@ from kevin.src.model.model import Model
 def make_environment(game):
     return FrameStacking(RewindingEnv(game))
 
+
+V_TO_PI_LEARNING_RATIO = 3
+
+
 class PPOModel:
     # set some env vars
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'  # tell XLA to be quiet
-    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.77'  # use most of gpu mem
+    os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'  # use most of gpu mem
 
     def record_metrics(self, metrics):
         for name, metric in metrics.items():
@@ -93,7 +97,7 @@ class PPOModel:
 
         self._learning_rate = rate
         self._pi_optimizer = optax.adam(rate)
-        self._v_optimizer = optax.adam(rate)
+        self._v_optimizer = optax.adam(rate * V_TO_PI_LEARNING_RATIO)
         self.ppo_clip.optimizer = self._pi_optimizer
         self.simple_td.optimizer = self._v_optimizer
 
@@ -142,20 +146,20 @@ class PPOModel:
             # 128 batches x 256 transitions / 64-128 transitions per game. That's around 1-2k games per gen.
             batches_per_gen = 128
             batch_size = 256
-            mini_batch_size = 128  # Set this to whatever your gpu can handle
+            mini_batch_size = 96  # Set this to whatever your gpu can handle
             while True:
 
                 # Anneal learning rate and other hypers
                 # Remember 1 gen is anywhere between 1000 and 4000 games
                 g = self.generation_num
                 if g < 30:  # 60k games
-                    self.learning_rate = 0.0001
-                    self.beta = 0.009
+                    self.learning_rate = 0.0005
+                    self.beta = 0.01
                     self.soft_update_rate = 0.01
 
                 if 30 <= g < 75:  # 150k games
                     self.learning_rate = 0.0001
-                    self.beta = 0.006
+                    self.beta = 0.005
                     self.soft_update_rate = 0.1
 
                 if 75 <= g < 250:  # 500k games
@@ -191,9 +195,11 @@ class PPOModel:
 
                 # Set up new workers to play some games then die
                 pi_lz4 = coax.utils.dumps(self.pi_behavior)
+                v_lz4 = coax.utils.dumps(self.v_targ)
                 while len(futures) < num_workers:
                     t = self.render_period if renderer is None else -1
-                    w = play_games.remote(pi_lz4, games_per_worker, self.updater_ref, t, stats)
+                    v_func = v_lz4 if renderer is None else None
+                    w = play_games.remote(pi_lz4, games_per_worker, self.updater_ref, t, stats, v_func)
                     futures.append(w)
                     if renderer is None:
                         renderer = w
@@ -291,9 +297,9 @@ class PPOModel:
 
 
 @ray.remote
-def play_games(pi, num_games, updater_ref, render_period=-1, stats=None):
+def play_games(pi, num_games, updater_ref, render_period=-1, stats=None, v=None):
     os.environ['JAX_PLATFORMS'] = 'gpu, cpu'  # tell JAX to use GPU
-    return ExperienceWorker(pi, updater_ref, render_period, stats)(num_games)
+    return ExperienceWorker(pi, updater_ref, render_period, stats, v=v)(num_games)
 
 
 class ExperienceWorker:
@@ -305,7 +311,7 @@ class ExperienceWorker:
     policy: Callable
     random_policy: Callable
 
-    def __init__(self, pi, updater_ref, render_period=-1, stats: dict | None = None):
+    def __init__(self, pi, updater_ref, render_period=-1, stats: dict | None = None, v=None):
         """
         Creates a new worker that plays games to gather experience.
         @param pi: The policy function to choose actions in lz4 pickle byte string format (pi_behavior)
@@ -317,10 +323,11 @@ class ExperienceWorker:
 
         self.env = make_environment(PythonGameState(updater=updater))
         self.policy = coax.utils.loads(pi)
+        self.value = None if v is None else coax.utils.loads(v)
         self.render_period = render_period
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=20, gamma=0.97) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.95) for agent in self.env.possible_agents}
 
     @property
     def policy(self):
@@ -392,10 +399,14 @@ class ExperienceWorker:
 
                 if self.verbose:
                     print(self.env.render())
-                    print("Rewards:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
-                                                      for a, v in rewards.items()]))
+                    print("Rewards:\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                                                    for a, v in rewards.items()]))
                     print("Prob:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {exp(v):>.2f}"
                                                    for a, v in logps.items()]))
+                    if self.value is not None:
+                        vals = {agent: self.value(obs) for agent, obs in obs_next.items()}
+                        print("VFunc:\t\t" + "\t".join([f"{utils.render_symbols[a]['head']}: {v:>.2f}"
+                                                        for a, v in vals.items()]))
 
                 # Trace rewards
                 for agent in live_agents:
@@ -494,6 +505,6 @@ m = PPOModel()
 if True:
     m.build()
 else:
-    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-23_1855/kevin_v0.1_2023-03-23_1855_gen_16.pkl.lz4")
+    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-24_1305/kevin_v0.1_2023-03-24_1305_gen_12.pkl.lz4")
 
 m.learn(10000000)
