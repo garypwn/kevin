@@ -1,104 +1,92 @@
-from typing import Callable
+from abc import ABC, abstractmethod
+from datetime import datetime
 
-import haiku as hk
-import jax.nn as jnn
-import jax.numpy as jnp
+import coax
+import gymnasium
+import tensorboardX
 from gymnasium import spaces
 
-
-class Model:
-    body: Callable
-    action_space: spaces.Discrete
-
-    def __init__(self, body, space):
-        self.body = body
-        self.action_space = space
-
-    def pi_logits(self, S, is_training):
-        logits = hk.Sequential([
-            hk.Flatten(),
-            hk.Linear(256),
-            hk.Linear(self.action_space.n, name="pi_head_output", w_init=jnp.zeros)
-        ])
-        return {'logits': logits(self.body(S, is_training))}
-
-    def v(self, S, is_training):
-        value = hk.Sequential([
-            hk.Flatten(),
-            hk.Linear(256),
-            hk.Linear(1, name="v_head_output", w_init=jnp.zeros),
-            jnp.ravel
-        ])
-        result = self.body(S, is_training)
-        return value(result)
-
-    def q(self, S, is_training):
-        seq = hk.Sequential([
-            hk.Linear(8), jnn.relu,
-            hk.Flatten(),
-            hk.Linear(self.action_space.n),
-        ])
-        result = self.body(S, is_training)
-        return seq(result)
+from kevin.src.model.func_approximator import FuncApproximator
 
 
-def simple_linear_body(x, is_training):
-    boards = jnp.float32(jnp.moveaxis(x, 1, 3))
-    lin = hk.Sequential([
-        hk.Linear(256, name="body_0"), jnn.relu,
-        hk.Linear(256, name="body_1"), jnn.relu
-    ])
-    return lin(boards)
+class Model(ABC):
+    transitions_per_gen = 128 * 256  # Should be around 1-2k games
+    generation = 0
+    transitions_processed = 0
+    logp_required = False
 
+    def __init__(self, gym_env: gymnasium.Env,
+                 func_approximator: FuncApproximator,
+                 tensorboard: tensorboardX.SummaryWriter | None = None):
+        self.name = "unnamed"
+        self.tensorboard = tensorboard
+        self.gym_env = gym_env
+        self.func_approximator = func_approximator
 
-def residual_body(x, is_training):
-    class ConvNorm:
-        def __init__(self, shape, name=None):
-            if name is None:
-                self.batch_name = None
-                self.conv_name = None
-            else:
-                self.batch_name = name + "_batchnorm"
-                self.conv_name = name + "_conv2d"
-            self.shape = [shape, shape]
+    def set_name(self, prefix="", model_name=""):
+        self.name = f"{prefix}_{model_name}_{datetime.today().strftime('%Y-%m-%d_%H%M')}"
 
-        def __call__(self, s):
-            batch_norm = hk.BatchNorm(True, True, 0.999, data_format="N...C", name=self.batch_name)
-            conv2d = hk.Conv2D(256, self.shape, data_format="N...C", name=self.conv_name)
-            return batch_norm(conv2d(s), is_training)
+    @abstractmethod
+    def learn(self, batch_size: int):
+        """
+        Updates the model on a number of transitions sampled from those added with add_transitions()
+        @param batch_size: The number of transitions to learn form
+        @return:
+        """
+        pass
 
-    class ResCore:
+    @abstractmethod
+    def add_transitions(self, batches: list[coax.reward_tracing.TransitionBatch]):
+        """
+        Adds a list of transition batches to a buffer or queue. When learn() is called, transitions will be taken
+        from here.
+        @param batches:
+        @return: The number of transitions added
+        """
+        pass
 
-        def __init__(self, kernel_size=3, name=None):
-            if name is None:
-                self.conv1_name = None
-                self.conv2_name = None
-            else:
-                self.conv1_name = name + "_first"
-                self.conv2_name = name + "_second"
+    @property
+    def buffer_len(self):
+        return None
 
-            self.kernel_size = kernel_size
+    @property
+    def buffer_capacity(self):
+        return None
 
-        def __call__(self, s):
-            convoluted = hk.Sequential([
-                ConvNorm(self.kernel_size, name=self.conv1_name), jnn.relu,
-                ConvNorm(self.kernel_size, name=self.conv2_name)
-            ])
-            return jnp.add(s, convoluted(s))
+    @abstractmethod
+    def policy(self) -> coax.Policy:
+        """
+        The policy function that will select actions when training
+        @return: The policy
+        """
+        pass
 
-    conv = hk.Sequential([
+    @abstractmethod
+    def checkpoint(self, directory_path: str) -> str:
+        """
+        Saves the model
+        @param directory_path: the .checkpoint directory
+        @return: the name of the file
+        """
+        pass
 
-        hk.Reshape([-1, 23]),
+    @abstractmethod
+    def build_from_file(self, filename: str):
+        """
+        Builds the model from a file
+        @param filename:
+        @return:
+        """
+        pass
 
-        # 3x3 -> adjacent things. Things that might happen next turn.
-        hk.Conv2D(256, [3, 3], data_format="N...C", name="body_0"), jnn.relu,
+    @abstractmethod
+    def build(self):
+        """
+        Builds a new model from scratch
+        @return:
+        """
+        pass
 
-        ResCore(3, "res_core_0"), jnn.relu,
-        ResCore(3, "res_core_1"), jnn.relu,
-
-    ])
-
-    boards = jnp.float32(jnp.moveaxis(x, 1, 3))
-    boards = 10 * jnp.log(1 + jnp.log(1 + boards))  # Transform to make zeros a bigger deal
-
-    return conv(boards)
+    def record_metrics(self, metrics: dict, time_step):
+        for name, metric in metrics.items():
+            self.tensorboard.add_scalar(str(name), float(metric), global_step=time_step)
