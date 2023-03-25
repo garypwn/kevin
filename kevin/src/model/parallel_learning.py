@@ -73,8 +73,8 @@ class ParallelLearning:
 
     def learn(self, loops):
 
-        num_workers = 10
-        games_per_worker = 50
+        num_workers = 6
+        games_per_worker = 25
 
         # Set up the tensorboard
 
@@ -91,7 +91,9 @@ class ParallelLearning:
                 # These get sent to our workers so that they can display stats properly
                 stats = {
                     "episode_num": episode_num,
-                    "generation_num": self.model.generation
+                    "generation_num": self.model.generation,
+                    "td_n": self.model.td_n,
+                    "td_gamma": self.model.td_gamma
                 }
 
                 # Check on our workers
@@ -157,6 +159,14 @@ class ParallelLearning:
         self.tensorboard.add_scalar("stats/avg_game_length", stats["turns_played"] / eps_played, global_step=eps)
         self.tensorboard.add_scalar("stats/avg_winner_size", stats["avg_winner_length"], global_step=eps)
 
+        # Log hparams
+        self.tensorboard.add_hparams({h.name: h.val for h in self.model.hyper_params()},
+                                     {"hparams/win_rate" : rates_dict['win'],
+                                      "hparams/game_length": stats["turns_played"] / eps_played,
+                                      "hparams/winner_size": stats["avg_winner_length"]},
+                                     global_step=eps,
+                                     name=self.model.name)
+
 
 @ray.remote
 def play_games(pi, num_games, updater_ref, render_period=-1, stats=None, v=None):
@@ -182,6 +192,8 @@ class ExperienceWorker:
         updater = updater_ref
         self.episode_num = stats["episode_num"] if stats is not None else 0
         self.generation_num = stats["generation_num"] if stats is not None else 0
+        self.td_n = stats["td_n"] if stats is not None else 10
+        self.td_gamma = stats["td_gamma"] if stats is not None else .95
 
         self.env = make_environment(PythonGameState(updater=updater))
         self.policy = coax.utils.loads(pi)
@@ -189,7 +201,8 @@ class ExperienceWorker:
         self.render_period = render_period
 
         # One tracer for each agent
-        self.tracers = {agent: coax.reward_tracing.NStep(n=10, gamma=0.95) for agent in self.env.possible_agents}
+        self.tracers = {agent: coax.reward_tracing.NStep(n=self.td_n, gamma=self.td_gamma)
+                        for agent in self.env.possible_agents}
 
     @property
     def policy(self):
@@ -306,13 +319,15 @@ class ExperienceWorker:
                     vs_random['win'] += 1
                 vs_random['games'] += 1
 
+            if winner is not None:
+                winner_sizes.append(len(self.env.game.snakes[winner].body))
+
             if self.verbose:
                 print("===== End Generation {} Game ~{} ({} / {}) =============="
                       .format(self.generation_num, self.episode_num + i, i, n))
 
                 if winner is not None:
                     print("Result:\t{} {} win!".format(utils.render_symbols[winner]["head"], winner))
-                    winner_sizes.append(len(self.env.game.snakes[winner].body))
                 else:
                     print("Result: Draw.")
 
@@ -380,6 +395,6 @@ m = ParallelLearning(DeepQ)
 if False:
     m.build()
 else:
-    m.build_from_file(".checkpoint/kevin_v0.1_dqn_2023-03-25_0059/kevin_v0.1_dqn_2023-03-25_0059_gen_32.pkl.lz4")
+    m.build_from_file(".checkpoint/kevin_v0.1_dqn_2023-03-25_0059/kevin_v0.1_dqn_2023-03-25_0059_gen_320.pkl.lz4")
 
 m.learn(10000000)

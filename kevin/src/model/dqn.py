@@ -5,7 +5,17 @@ from coax.value_losses import mse
 from gymnasium import spaces
 
 from kevin.src.model.func_approximator import FuncApproximator
-from kevin.src.model.model import Model
+from kevin.src.model.model import Model, Hyperparam
+
+
+# Gamma values: How far in the future do you want the snake to look?
+# Too high -> The snake will favor eating food over winning
+# Too low -> The snake will not think ahead and strategize
+# .95:  10 steps -> 60%. 50 steps -> 8%
+# .975: 10 steps -> 78%. 50 steps -> 28%
+# .99:  10 steps -> 90%. 50 steps -> 60%
+_TD_N = 10
+_TD_GAMMA = .95
 
 
 class DeepQ(Model):
@@ -130,5 +140,24 @@ class DeepQ(Model):
     def buffer_capacity(self):
         return self.buffer.capacity
 
+    @property
+    def td_n(self) -> int:
+        return _TD_N
+
+    @property
+    def td_gamma(self) -> float:
+        return _TD_GAMMA
+
     def policy(self) -> coax.BoltzmannPolicy:
         return self.pi
+
+    def hyper_params(self) -> set:
+        return {
+            Hyperparam("lr", "Learning rate", self.learning_rate),
+            Hyperparam("tau", "Function update exponential smoothing time constant", self.soft_update_rate),
+            Hyperparam("pi_tau", "Boltzmann policy temperature", self.pi.temperature),
+            Hyperparam("alpha", "Prioritized replay sampling temperature", self.buffer.alpha),
+            Hyperparam("beta", "Prioritized replay importance-weight coefficient", self.buffer.beta),
+            Hyperparam("n", "TD target bootstrapping constant", self.td_n),
+            Hyperparam("gamma", "TD discount factor", self.td_gamma)
+        }

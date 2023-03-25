@@ -9,6 +9,12 @@ from gymnasium import spaces
 from kevin.src.model.func_approximator import FuncApproximator
 
 
+class Hyperparam:
+    def __init__(self, name, desc, val):
+        self.name = name
+        self.desc = desc
+        self.val = val
+
 class Model(ABC):
     transitions_per_gen = 128 * 256  # Should be around 1-2k games
     generation = 0
@@ -53,6 +59,22 @@ class Model(ABC):
     def buffer_capacity(self):
         return None
 
+    @property
+    def td_n(self) -> int:
+        """
+        The number of steps to bootstrap the learning target for temporal difference models
+        @return: A positive integer
+        """
+        return 0
+
+    @property
+    def td_gamma(self) -> float:
+        """
+        The discount factor for temporal difference models
+        @return: A float between 0 and 1
+        """
+        return 0.
+
     @abstractmethod
     def policy(self) -> coax.Policy | coax.BoltzmannPolicy | coax.EpsilonGreedy:
         """
@@ -86,6 +108,13 @@ class Model(ABC):
         @return:
         """
         pass
+
+    @abstractmethod
+    def hyper_params(self) -> set[Hyperparam]:
+        """
+        Returns a set of hyperparameters.
+        @return: A set of hyperparameters for this model.
+        """
 
     def record_metrics(self, metrics: dict, time_step):
         for name, metric in metrics.items():
