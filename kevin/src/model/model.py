@@ -54,7 +54,7 @@ class Model(ABC):
         return None
 
     @abstractmethod
-    def policy(self) -> coax.Policy:
+    def policy(self) -> coax.Policy | coax.BoltzmannPolicy | coax.EpsilonGreedy:
         """
         The policy function that will select actions when training
         @return: The policy
@@ -80,7 +80,7 @@ class Model(ABC):
         pass
 
     @abstractmethod
-    def build(self):
+    def build(self, name_prefix: str):
         """
         Builds a new model from scratch
         @return:

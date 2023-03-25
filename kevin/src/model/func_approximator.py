@@ -34,12 +34,11 @@ class FuncApproximator:
 
     def q(self, S, is_training):
         seq = hk.Sequential([
-            hk.Linear(8), jnn.relu,
             hk.Flatten(),
-            hk.Linear(self.action_space.n),
+            hk.Linear(256),
+            hk.Linear(self.action_space.n, name="q_head_output", w_init=jnp.zeros)
         ])
-        result = self.body(S, is_training)
-        return seq(result)
+        return seq(self.body(S, is_training))
 
 
 def simple_linear_body(x, is_training):

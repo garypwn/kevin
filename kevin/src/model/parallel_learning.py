@@ -15,6 +15,7 @@ from kevin.src.engine.python_engine import PythonGameState
 from kevin.src.environment.rewinding_environment import RewindingEnv
 from kevin.src.environment.wrapper import FrameStacking
 from kevin.src.model import func_approximator
+from kevin.src.model.dqn import DeepQ
 from kevin.src.model.func_approximator import FuncApproximator
 from kevin.src.model.model import Model
 from kevin.src.model.ppo import PPO
@@ -33,11 +34,11 @@ class ParallelLearning:
     os.environ['XLA_PYTHON_CLIENT_MEM_FRACTION'] = '0.75'  # use most of gpu mem
 
     model: Model
+    tensorboard = None
 
     def __init__(self, model: Callable):
         self.version = '0.1'
         self.name = f'kevin_v{self.version}'
-        self.tensorboard = tensorboardX.SummaryWriter(logdir="runs/v{}/{}".format(self.version, self.name))
 
         self.updater = FixedBoardUpdater(11, 11)
         self.game = PythonGameState(updater=self.updater)
@@ -49,13 +50,21 @@ class ParallelLearning:
 
         self.func_approximator = FuncApproximator(func_approximator.residual_body, self.gym_env.action_space)
 
-        self.model = model(self.gym_env, self.func_approximator, self.tensorboard)
+        self.model = model(self.gym_env, self.func_approximator)
 
     def build(self):
-        self.model.build()
+        self.model.build(name_prefix=self.name)
+        self.tensorboard = tensorboardX.SummaryWriter(logdir=f"runs/v{self.version}/{self.model.name}")
+        self.model.tensorboard = self.tensorboard
+        print("\n======Begin Experiment============================")
+        print(f"Name: {self.model.name}\nGeneration: {self.model.generation}\n")
 
     def build_from_file(self, filename):
         self.model.build_from_file(filename)
+        self.tensorboard = tensorboardX.SummaryWriter(logdir=f"runs/v{self.version}/{self.model.name}")
+        self.model.tensorboard = self.tensorboard
+        print("\n======Loaded Experiment============================")
+        print(f"Name: {self.model.name}\nGeneration: {self.model.generation}\n")
 
     def checkpoint(self):
         print("======Checkpoint {}============================".format(self.model.generation))
@@ -75,7 +84,7 @@ class ParallelLearning:
             futures = []
             renderer = None
 
-            batch_size = 256  # Number of transitions to learn on before rerunning the worker loop
+            batch_size = 512  # Number of transitions to learn on before rerunning the worker loop
             while True:
 
                 episode_num = self.model.transitions_processed // 100  # Approximate game number
@@ -344,7 +353,7 @@ class SmartRandomPolicy:
             return move
 
 
-m = ParallelLearning(PPO)
+m = ParallelLearning(DeepQ)
 if True:
     m.build()
 else:
