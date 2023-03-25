@@ -344,7 +344,7 @@ class PythonGameState(GameState):
         live_snakes += len(self.recent_eliminations)
         live_snakes += 4
 
-        # Neutral reward is based on surviving. Falls off late game.
+        # Penalty for being alive. Larger when there are more snakes.
         converging_neutral_reward = 7. / (self.turn_num + 2.)
         # survival_reward = 0.02
         survival_reward = -.0001 * live_snakes
@@ -355,13 +355,16 @@ class PythonGameState(GameState):
         length_reward = 0.0
 
         # Reward for winning is huge
-        static_victory_reward = 1.5
+        static_victory_reward = .3 + .3 * self.player_count  # 1.5 for a 4p game
 
-        # Defeat gives a static penalty
+        # Defeat penalty scales with number of live snakes (losing early bad)
         defeat_penalty = -.2 * live_snakes
 
         # Eating food gives a small static penalty (smaller than killing or winning)
         food_reward = .1 if snake_id in self.snake_ate_food else 0
+
+        #  Check if last snake alive
+        alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
 
         # Add a reward for other snakes dying (hopefully translates to the urge to kill)
         if len(self.recent_eliminations) > 0 and snake_id not in self.recent_eliminations:
@@ -370,11 +373,15 @@ class PythonGameState(GameState):
             kill_reward = 0
 
         if self._eliminated(snake_id):
-            # return -4.  # Losing gives a static penalty
+
+            # Check for an end of game draw
+            if len(alive_snakes) == 0:
+                # If defeat is assured, the goal becomes kamikaze
+                return defeat_penalty * scale * 0.75
+
+                # return -4.  # Losing gives a static penalty
             return defeat_penalty * scale
 
-        #  Check if last snake alive
-        alive_snakes = list(filter(lambda s: not self._eliminated(s), [name for name, _ in self.snakes.items()]))
         if snake_id in alive_snakes and len(alive_snakes) == 1:
 
             # If it's single player, return a neutral reward
@@ -598,7 +605,7 @@ class MetaObservationFactory:
                 for move in self.all_safe_moves[name]:
                     line += [move] * 4
 
-                lines = jnp.array([line]*5, dtype=jnp.int16)
+                lines = jnp.array([line] * 5, dtype=jnp.int16)
                 obs = jax.lax.dynamic_update_slice(obs, lines, (5 * i, 0))
 
             return obs

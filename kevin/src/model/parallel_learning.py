@@ -73,7 +73,7 @@ class ParallelLearning:
 
     def learn(self, loops):
 
-        num_workers = 12
+        num_workers = 10
         games_per_worker = 50
 
         # Set up the tensorboard
@@ -377,9 +377,9 @@ class SmartRandomPolicy:
 
 
 m = ParallelLearning(DeepQ)
-if True:
+if False:
     m.build()
 else:
-    m.build_from_file(".checkpoint/kevin_v0.1_2023-03-24_1305/kevin_v0.1_2023-03-24_1305_gen_12.pkl.lz4")
+    m.build_from_file(".checkpoint/kevin_v0.1_dqn_2023-03-25_0059/kevin_v0.1_dqn_2023-03-25_0059_gen_32.pkl.lz4")
 
 m.learn(10000000)
